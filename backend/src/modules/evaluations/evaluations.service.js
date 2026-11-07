@@ -26,7 +26,8 @@ function completed(row) {
 }
 
 export function evaluationService(database, aiClient) {
-  return {
+  const inFlight = new Map();
+  const service = {
     async get(id) {
       const row = await database.evaluation.findUnique({ where: { id }, include });
       if (!row) throw new ApiError(404, 'EVALUATION_NOT_FOUND', 'Evaluation not found');
@@ -86,6 +87,21 @@ export function evaluationService(database, aiClient) {
         const saved = await tx.evaluation.update({ where: { id: evaluation.id }, data: { status: 'COMPLETED', completedAt: new Date() }, include });
         return { data: serialize(saved), created: true };
       }, { timeout: 10000 });
+    },
+  };
+  return {
+    get: service.get,
+    async create(input) {
+      const key = `${input.conversationId}:${input.checklistId}`;
+      const running = inFlight.get(key);
+      if (running) {
+        const result = await running;
+        return { data: result.data, created: false };
+      }
+      const work = service.create(input);
+      inFlight.set(key, work);
+      try { return await work; }
+      finally { inFlight.delete(key); }
     },
   };
 }

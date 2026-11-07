@@ -296,6 +296,19 @@ test('database errors map to safe HTTP responses', async () => {
   }
 });
 
+test('PostgreSQL adapter SQLSTATE errors are sanitized without language-dependent matching', async () => {
+  for (const [state, expected] of [['23514',400],['23505',409],['23503',409],['3D000',503],['42P01',503],['08006',503]]) {
+    const database = { conversation: { findUnique() { throw Object.assign(new Error('secret URL password'), {
+      code:'P2039',meta:{driverAdapterError:{cause:{originalCode:state}}},
+    }); } } };
+    const server = createApp({ database }).listen(0,'127.0.0.1'); await once(server,'listening');
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/conversations/${randomUUID()}`);
+      assert.equal(response.status,expected);assert.equal(JSON.stringify(await response.json()).includes('secret'),false);
+    } finally { await new Promise(resolve=>server.close(resolve)); }
+  }
+});
+
 test('a refused PostgreSQL connection returns HTTP 503 without connection details', async () => {
   const probe = createServer();
   probe.listen(0, '127.0.0.1');

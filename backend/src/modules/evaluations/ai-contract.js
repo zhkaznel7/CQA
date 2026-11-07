@@ -48,6 +48,9 @@ export function validateAiResponse(payload, conversation, checklist, confirmatio
       }
     }
     if (!result.evidence.length && !range) invalid('AI_MISSING_SUPPORT', 'AI must provide evidence or an explicitly checked range');
+    if (!result.na && criterion.type === 'boolean' && result.answer === false && !range) {
+      invalid('AI_MISSING_RANGE', 'A missing action requires an explicitly checked transcript range');
+    }
     if (result.na) {
       if (result.answer !== null || !result.na_reason?.trim()) invalid('AI_INVALID_NA', 'N/A requires a null answer and a reason');
       if (!confirmApplicability(criterion, conversation, checklist, confirmations)) {

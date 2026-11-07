@@ -24,6 +24,9 @@ services:
   backend:
     build: .
     init: true
+    volumes:
+      # Export is an explicit CLI operation; generated submissions stay ignored by Git.
+      - ../results:/app/results
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0

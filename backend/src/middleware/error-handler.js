@@ -23,10 +23,21 @@ export function errorHandler(err, req, res, next) {
     P1000: [503, 'DATABASE_UNAVAILABLE', 'Database is unavailable'],
     P1001: [503, 'DATABASE_UNAVAILABLE', 'Database is unavailable'],
     P1002: [503, 'DATABASE_UNAVAILABLE', 'Database is unavailable'],
+    P1003: [503, 'DATABASE_UNAVAILABLE', 'Database is unavailable'],
     P1017: [503, 'DATABASE_UNAVAILABLE', 'Database is unavailable'],
     P2024: [503, 'DATABASE_UNAVAILABLE', 'Database is unavailable'],
   };
-  const [status, code, message] = errors[err.type ?? err.code]
+  // Prisma 7's PostgreSQL adapter can expose SQLSTATE through P2039.
+  const state = err.meta?.driverAdapterError?.cause?.originalCode;
+  const adapterErrors = {
+    '23514': [400, 'DATABASE_CONSTRAINT', 'Data violates database constraints'],
+    '23505': [409, 'CONFLICT', 'A record with this identifier or version already exists'],
+    '23503': [409, 'REFERENCE_CONFLICT', 'Related record prevents this operation'],
+    '3D000': [503, 'DATABASE_UNAVAILABLE', 'Database is unavailable'],
+    '42P01': [503, 'DATABASE_UNAVAILABLE', 'Database is unavailable'],
+    '08006': [503, 'DATABASE_UNAVAILABLE', 'Database is unavailable'],
+  };
+  const [status, code, message] = adapterErrors[state] ?? errors[err.type ?? err.code]
     ?? [500, 'INTERNAL_SERVER_ERROR', 'Internal server error'];
 
   if (status === 500) console.error('Unhandled request error');

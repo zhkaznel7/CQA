@@ -159,6 +159,8 @@ test('exact evidence quotes and inclusive checked ranges are enforced', async ()
     assert.throws(() => validateAiResponse(changed, conversation, checklist, []), (error) => error.status === 502);
   }
   response.results[0].checked_range = null;
+  assert.throws(() => validateAiResponse(response, conversation, checklist, []), bad('AI_MISSING_RANGE'));
+  response.results[0].answer = true;
   validateAiResponse(response, conversation, checklist, []);
 });
 

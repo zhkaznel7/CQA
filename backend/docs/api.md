@@ -42,7 +42,10 @@ language (RU/KZ/EN) и channel (точная строка до 50 символо
 и переходов по redirects. Токен передаётся в Authorization: Bearer.
 Настроенный URL — доверенная настройка оператора развёртывания, а не поле HTTP API.
 
-Контракт источника (пока реальный формат организаторов не предоставлен):
+Официальный источник из Student Guide v3: `{error,isSuccess,data:{dataset_group_id,
+total_records,records:[...]}}`. Адаптер проверяет isSuccess и полноту количества,
+сопоставляет conversation_id → externalId и audio_url → audioUrl. Исходные channel,
+транскрипт и timestamp сохраняются. Старый внутренний формат ниже тоже поддерживается:
 
 ```json
 {

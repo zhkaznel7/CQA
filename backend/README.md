@@ -1,5 +1,11 @@
 # CQA Backend — этап 6
 
+Технический аудит: [docs/technical-audit.md](docs/technical-audit.md).
+Экспорт JSON 1.0 по официальному приложению: [docs/results-export.md](docs/results-export.md).
+Единый основной экспортёр — Backend; сравнение с AI --scores и подтверждённое DEV-исключение
+contact=null: [docs/exporters-compatibility.md](docs/exporters-compatibility.md).
+Добавлены поддержка официальной оболочки API организаторов и `npm.cmd run export:results`.
+
 Express + PostgreSQL + Prisma, JavaScript ES Modules. Требуется Node.js >= 22.13.0;
 Docker использует Node.js 24 LTS. Prisma Client, CLI и PostgreSQL adapter — 7.10.1.
 Реализованы Conversations API, Checklists API, Scoring Engine, Evaluations API и Appeals API.

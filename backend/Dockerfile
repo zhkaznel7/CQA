@@ -15,6 +15,7 @@ RUN npm run db:generate
 COPY src ./src
 COPY docker ./docker
 COPY scripts ./scripts
+RUN mkdir -p /app/results /app/.tmp && chown node:node /app/results /app/.tmp
 
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
 USER node

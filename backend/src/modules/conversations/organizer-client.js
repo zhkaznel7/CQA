@@ -1,5 +1,6 @@
 import { ApiError } from '../../middleware/api-error.js';
 import { mockConversations } from './mock-conversations.js';
+import { organizerRecords } from './organizer-payload.js';
 
 export function createConversationSource(config, fetchImplementation = fetch) {
   return async function loadConversations() {
@@ -42,10 +43,7 @@ export function createConversationSource(config, fetchImplementation = fetch) {
         reader.releaseLock();
       }
       const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      if (!payload || !Array.isArray(payload.conversations) || payload.conversations.length > config.IMPORT_MAX_RECORDS) {
-        throw new ApiError(502, 'UPSTREAM_INVALID_DATA', 'Organizer API returned invalid data');
-      }
-      return payload.conversations;
+      return organizerRecords(payload, config.IMPORT_MAX_RECORDS);
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {
