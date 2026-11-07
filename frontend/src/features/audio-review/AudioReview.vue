@@ -3,8 +3,12 @@ import { computed, ref, watch } from 'vue'
 import WaveformPlayer from './WaveformPlayer.vue'
 
 const props = defineProps({ recording: { type: Object, required: true } })
+defineEmits(['unavailable'])
+function selectRange(start, end) { selection.value = { start, end } }
+defineExpose({ selectRange })
 const selection = ref({ start: 0, end: 0 })
-watch(() => props.recording, (recording) => {
+watch(() => props.recording.audioUrl, () => {
+  const recording = props.recording
   const first = recording.findings[0] ?? recording.turns[0]
   selection.value = { start: first?.start ?? 0, end: first?.end ?? 1 }
 }, { immediate: true })
@@ -28,7 +32,7 @@ const findings = computed(() => props.recording.findings.filter(overlaps))
 <template>
   <section class="audio-review" aria-label="Разбор аудиозаписи">
     <WaveformPlayer :key="recording.audioUrl" :src="recording.audioUrl"
-      :selection="selection" @select="selection = $event" />
+      :selection="selection" @select="selection = $event" @unavailable="$emit('unavailable')" />
     <h2>Слова в выделении</h2>
     <ul v-if="excerpt.length" class="audio-excerpt">
       <li v-for="row in excerpt" :key="row.turn.start">

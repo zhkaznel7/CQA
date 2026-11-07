@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import AppealRequest from '../appeals/AppealRequest.vue'
 import { evaluationService } from './service.js'
 
 const props = defineProps({
   conversationId: { type: String, required: true },
   service: { type: Object, default: () => evaluationService },
 })
-const emit = defineEmits(['evidence'])
+const emit = defineEmits(['evidence', 'result'])
 const versions = shallowRef([])
 const selected = ref('')
 const result = shallowRef(null)
@@ -37,6 +38,7 @@ function loadVersions() {
 function evaluate() {
   return run(async () => {
     result.value = await props.service.evaluate(props.conversationId, selected.value, controller.signal)
+    emit('result', result.value)
   })
 }
 
@@ -68,7 +70,7 @@ onBeforeUnmount(() => controller.abort())
     <p v-if="busy" role="status">{{ versions.length ? 'Получаем оценку…' : 'Загружаем чек-листы…' }}</p>
     <template v-if="versions.length">
       <label>Версия чек-листа
-        <select v-model="selected" :disabled="busy" @change="result = null">
+        <select v-model="selected" :disabled="busy" @change="result = null; emit('result', null)">
           <option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }} · v{{ v.version }}</option>
         </select>
       </label>
@@ -80,7 +82,7 @@ onBeforeUnmount(() => controller.abort())
     </template>
     <article v-if="result">
       <h3>Результат · {{ result.checklist.name }} · v{{ result.checklist.version }}</h3>
-      <p v-if="result.evaluation.isMock">Демонстрационная оценка</p>
+      <p v-if="result.evaluation.isMock">Оценка тестовой модели сервера</p>
       <p v-if="result.reused">Получена ранее сохранённая оценка.</p>
       <p>Итог: {{ result.evaluation.score.total === null ? 'не рассчитан' : points.format(result.evaluation.score.total) + ' / 100' }}</p>
       <p>Грубая ошибка: {{ result.evaluation.score.grossError ? 'да' : 'нет' }}</p>
@@ -102,6 +104,7 @@ onBeforeUnmount(() => controller.abort())
           <button v-if="row.checkedRange" type="button" @click="emit('evidence', row.checkedRange)">
             Проверенный участок: {{ row.checkedRange.start + 1 }}–{{ row.checkedRange.end + 1 }}
           </button>
+          <AppealRequest :key="result.evaluation.id + row.criterionId" :evaluation-id="result.evaluation.id" :criterion-id="row.criterionId" />
         </li>
       </ol>
     </article>

@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import ConversationCard from '../conversations/ConversationCard.vue'
-import { conversation, demoService } from './demo.js'
+import { conversation, demoService } from '../../../tests/fixtures/evaluation.js'
 
 let view
 afterEach(() => {

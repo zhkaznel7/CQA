@@ -31,3 +31,7 @@ export function postJson(path, body, signal) {
 export function putJson(path, body, signal) {
   return requestJson(path, { signal, body, method: 'PUT' })
 }
+
+export function patchJson(path, body, signal) {
+  return requestJson(path, { signal, body, method: 'PATCH' })
+}

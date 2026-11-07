@@ -7,7 +7,7 @@ const props = defineProps({
   src: { type: String, required: true },
   selection: { type: Object, required: true },
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'unavailable'])
 const container = ref(null)
 const duration = ref(0)
 const playing = ref(false)
@@ -53,7 +53,7 @@ onMounted(() => {
   player.on('play', () => { playing.value = true })
   player.on('pause', () => { playing.value = false })
   player.on('finish', () => { playing.value = false })
-  player.on('error', () => { error.value = 'Не удалось открыть аудиозапись.' })
+  player.on('error', () => emit('unavailable'))
   player.on('ready', seconds => {
     duration.value = seconds
     const start = props.selection.start < seconds ? props.selection.start : 0
@@ -62,7 +62,7 @@ onMounted(() => {
     regions.enableDragSelection(options)
   })
   player.load(props.src).catch(cause => {
-    if (cause.name !== 'AbortError') error.value = 'Не удалось загрузить волну аудиозаписи.'
+    if (cause.name !== 'AbortError') emit('unavailable')
   })
 })
 

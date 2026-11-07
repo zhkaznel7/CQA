@@ -1,13 +1,13 @@
-import { beforeEach, expect, it } from 'vitest'
+import { expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ChecklistEditor from './ChecklistEditor.vue'
 import { changeType, checklistError, toDraft } from './checklist.js'
-import { readDemoVersion, saveDemoVersion } from './demo.js'
+import { initial } from '../../../tests/fixtures/checklist.js'
 
-beforeEach(() => sessionStorage.clear())
+
 
 it('создаёт независимый черновик и отправляет только поля для PUT', async () => {
-  const source = readDemoVersion()
+  const source = structuredClone(initial)
   Object.assign(source.criteria[0], { id: 'server-id', maxPoints: 1, position: 0,
     allowNa: true, naCondition: 'Неполная запись',
     applicabilityRule: { kind: 'recording_start_missing', channels: ['voice'] } })
@@ -20,12 +20,10 @@ it('создаёт независимый черновик и отправляе
   expect(body.criteria[0]).not.toHaveProperty('maxPoints')
   expect(body.criteria[0].applicabilityRule).toEqual(source.criteria[0].applicabilityRule)
   expect(source.criteria[0].description).not.toBe(body.criteria[0].description)
-  expect(saveDemoVersion(source, body).version).toBe(2)
-  expect(readDemoVersion().criteria[0].description).toBe(body.criteria[0].description)
 })
 
 it('проверяет веса, допустимость N/A и шкалу в обоих порядках', () => {
-  const draft = toDraft(readDemoVersion())
+  const draft = toDraft(structuredClone(initial))
   const c = draft.criteria[0]
   c.weight = 90
   expect(checklistError(draft)).toMatch(/100/)
