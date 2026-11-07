@@ -11,7 +11,7 @@ function conversation(id, keys) {
     checklist: {...checklist, criteria: checklist.criteria.filter(c => keys.includes(c.key))}};
 }
 function row(input, key, index) {
-  return {criterion_id: key, applicability: {met: false, reason: 'Условие N/A не выполнено.'},
+  return {criterion_id: key, na_assessment: {condition_met: false, reason: 'Условие N/A не выполнено.'},
     checks: [], levels: [], explanation: 'Предварительное объяснение модели.',
     evidence: [{turnIndex: index, quote: input.transcript[index].text}],
     omission: false, checked_range: {start: 0, end: input.transcript.length - 1}, limitations: []};
@@ -32,16 +32,16 @@ function run(input, rows, {review = {requests: [], issues: []}, status = 200, in
   }});
 }
 
-test('p1-ru-025: N/A is derived from applicability, not the draft numeric answer', async () => {
+test('p1-ru-025: N/A is derived from na_assessment, not the draft numeric answer', async () => {
   const input = conversation('p1-ru-025', ['04']);
   const result = row(input, '04', 10);
-  result.applicability = {met: true, reason: 'Клиент ушёл до формулировки запроса.'};
+  result.na_assessment = {condition_met: true, reason: 'Клиент ушёл до формулировки запроса.'};
   result.answer = 0; // Ignored provider field, not part of the requested schema.
   const [wire] = await run(input, [result]);
   assert.equal(wire.answer, null);
   assert.equal(wire.na, true);
-  assert.equal(wire.na_reason, result.applicability.reason);
-  assert.equal(wire.explanation, result.applicability.reason);
+  assert.equal(wire.na_reason, result.na_assessment.reason);
+  assert.equal(wire.explanation, result.na_assessment.reason);
 });
 
 test('N/A assessment is required, and allowNa alone does not grant N/A', async () => {
@@ -51,14 +51,14 @@ test('N/A assessment is required, and allowNa alone does not grant N/A', async (
   assert.equal((await run(input, [result]))[0].na, false);
   result.checks = [];
   await assert.rejects(run(input, [result]), /нет проверок/);
-  delete result.applicability;
-  await assert.rejects(run(input, [result]), /нет отдельной проверки/);
+  delete result.na_assessment;
+  await assert.rejects(run(input, [result]), /na_assessment.condition_met/);
 });
 
 test('N/A with evidence for sufficient initial details produces a consistent wire result', async () => {
   const input = conversation('p1-kz-005', ['02']);
   const result = row(input, '02', 0);
-  result.applicability = {met: true, reason: 'Клиент уже указал нужное действие; дополнительных уточнений не требовалось.'};
+  result.na_assessment = {condition_met: true, reason: 'Клиент уже указал нужное действие; дополнительных уточнений не требовалось.'};
   assert.equal((await run(input, [result]))[0].na, true);
   result.checks = [check('Дополнительное уточнение', true, 0)];
   await assert.rejects(run(input, [result]), /N\/A несовместим/);
@@ -67,7 +67,7 @@ test('N/A with evidence for sufficient initial details produces a consistent wir
 test('ordinary chat greeting cannot acquire a prohibited N/A', async () => {
   const input = conversation('p1-ru-001', ['01']);
   const result = row(input, '01', 9);
-  result.applicability.met = true;
+  result.na_assessment.condition_met = true;
   await assert.rejects(run(input, [result]), /N\/A не разрешён/);
 });
 
@@ -163,7 +163,7 @@ test('provider quota, timeout and authorization errors remain safe', async () =>
 test('diagnostics distinguish dispatch, headers, body and validation without logging content', async () => {
   const input = conversation('p1-ru-025', ['04']);
   const result = row(input, '04', 10);
-  result.applicability = {met:true, reason:'Запрос не сформулирован.'};
+  result.na_assessment = {condition_met:true, reason:'Запрос не сформулирован.'};
   const events = [];
   let calls = 0;
   await evaluateGemini(input, {key:'secret-test-key', model:'test', onEvent:e=>events.push(e),
@@ -230,4 +230,81 @@ test('400 diagnostics classify schema and key errors without leaking provider te
     assert.equal(events.find(e=>e.event==='provider_rejected').reason,reason);
     assert.ok(!JSON.stringify(events).includes('secret'));
   }
+});
+
+test('ordinary greeting and confirmed N/A stay distinct in one unchanged Backend response', async () => {
+  const input = conversation('p1-ru-025', ['01','04']);
+  const greeting = row(input, '01', 9);
+  greeting.checks = [check('Приветствие на языке клиента', true, 9),
+    check('Представление в первом ответе', true, 9, 2)];
+  const consultation = row(input, '04', 10);
+  consultation.na_assessment = {condition_met:true,reason:'Клиент покинул чат, не сформулировав вопрос.'};
+  const output = await run(input, [greeting, consultation], {inspect: body => {
+    const schema = body.generationConfig.responseJsonSchema.properties.results.items;
+    assert.ok(!schema.properties.applicability);
+    assert.deepEqual(schema.properties.na_assessment.required, ['condition_met','reason']);
+    assert.equal(schema.properties.na_assessment.properties.condition_met.type, 'boolean');
+    assert.match(body.systemInstruction.parts[0].text, /Если allowNa=false, condition_met ОБЯЗАТЕЛЬНО false/);
+  }});
+  assert.equal(output[0].answer,true);
+  assert.equal(output[0].na,false);
+  assert.equal(output[0].na_reason,null);
+  assert.equal(output[1].answer,null);
+  assert.equal(output[1].na,true);
+  assert.equal(output[1].na_reason,consultation.na_assessment.reason);
+  for (const result of output) {
+    assert.deepEqual(Object.keys(result).sort(),
+      ['criterion_id','answer','na','na_reason','explanation','evidence','checked_range'].sort());
+  }
+});
+
+test('unmet N/A condition still allows zero for a formulated but unanswered request', async () => {
+  const input = conversation('p1-ru-001', ['04']);
+  const result = row(input,'04',0);
+  result.na_assessment = {condition_met:false,reason:'Запрос сформулирован; основание N/A отсутствует.'};
+  result.levels = levels(input,'04',0,'На сформулированный вопрос ответа нет.');
+  const [wire] = await run(input,[result]);
+  assert.equal(wire.answer,0);
+  assert.equal(wire.na,false);
+  assert.equal(wire.na_reason,null);
+});
+
+test('legacy ambiguous field or non-boolean N/A decision is rejected explicitly', async () => {
+  const input = conversation('p1-ru-025',['04']);
+  const result = row(input,'04',10);
+  delete result.na_assessment;
+  result.applicability = {met:true,reason:'Ambiguous old format'};
+  await assert.rejects(run(input,[result]),/na_assessment.condition_met/);
+  for (const condition_met of ['true',1,null,undefined]) {
+    result.na_assessment = {condition_met,reason:'Не boolean'};
+    await assert.rejects(run(input,[result]),/na_assessment.condition_met/);
+  }
+});
+
+test('a violation flag cannot turn into N/A, even with an invalid allowNa config', async () => {
+  const input = conversation('p1-en-014',['08']);
+  input.checklist.criteria[0].allowNa = true;
+  input.checklist.criteria[0].naCondition = 'Недостаточно данных';
+  const result = row(input,'08',10);
+  result.na_assessment = {condition_met:true,reason:'Недостаточно данных'};
+  await assert.rejects(run(input,[result]),/N\/A не разрешён/);
+});
+
+test('T05: public tariffs give N/A for configurable identification key c3', async () => {
+  const input = conversation('p1-ru-001',['03']);
+  input.transcript = [
+    {turnIndex:0,timestamp:'00:00',speaker:'client',text:'Где посмотреть публичные тарифы компании?'},
+    {turnIndex:1,timestamp:'00:01',speaker:'operator',text:'Здравствуйте! Тарифы доступны на сайте.'}
+  ];
+  input.checklist.criteria[0] = {...input.checklist.criteria[0],key:'c3'};
+  const result = row(input,'c3',0);
+  result.na_assessment = {condition_met:true,reason:'Запрошена общедоступная информация; проверка личности не требуется.'};
+  let calls=0;
+  const [wire] = await run(input,[result],{inspect:()=>calls++});
+  assert.equal(calls,1);
+  assert.equal(wire.criterion_id,'c3');
+  assert.equal(wire.na,true);
+  assert.equal(wire.answer,null);
+  assert.ok(wire.na_reason);
+  assert.equal(wire.evidence[0].turnIndex,0);
 });
