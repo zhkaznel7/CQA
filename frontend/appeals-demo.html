@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Апелляции · SQA</title>
+<link rel="stylesheet" href="css/appeals.css">
+<main><header><p>SQA / Учебный диалог 04</p>
+<nav aria-label="Учебный сценарий"><a href="?case=T11">T11 · Подтверждение</a> · <a href="?case=T12">T12 · Изменение</a></nav><h1>Пересмотр оценки</h1></header>
+<section><h2>Диалог</h2><p><b>Клиент</b> Где посмотреть тарифы и как узнать дату их обновления?</p>
+<p><b>Оператор</b> Откройте раздел «Тарифы». Дата обновления указана под таблицей.</p></section>
+<div id="appeals"></div></main>
+<template id="appeal-view"><section><h2>Качество консультации · c4</h2>
+<p>Исходная оценка ИИ <strong data-original></strong> · После рассмотрения <strong data-final></strong></p>
+<p>Учебный режим. Обращение и решение сохраняются в этом браузере.</p>
+<form data-request><label>Почему вы оспариваете оценку?<textarea name="comment" required></textarea></label><button>Подать апелляцию</button></form>
+<div data-history hidden><h3>История обращения</h3><p data-status></p><blockquote data-comment></blockquote><p data-reason></p></div>
+<form data-review hidden><h3>Решение проверяющего</h3><label>Действие<select name="action"><option value="confirm">Подтвердить оценку</option><option value="change">Изменить оценку</option></select></label>
+<label data-score-field hidden>Новый балл<select name="score"></select></label>
+<label>Причина решения<textarea name="reason" required></textarea></label><button>Сохранить решение</button></form>
+<p role="status" aria-live="polite"></p></section></template>
+<script type="module">
+import {mountAppeals} from './js/appeals.js';
+const scenario = new URLSearchParams(location.search).get('case') === 'T12' ? 'T12' : 'T11';
+document.querySelector(`a[href="?case=${scenario}"]`).setAttribute('aria-current', 'page');
+mountAppeals(document.querySelector('#appeals'), {
+  evaluationId: scenario === 'T12' ? 'demo-04-t12' : 'demo-04', criterionId:'c4', original:15, scale:[0,5,10,15,20],
+  template:document.querySelector('#appeal-view')
+});
+</script></html>

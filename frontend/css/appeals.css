@@ -1,0 +1,19 @@
+:root {font: 17px/1.55 "Inter", system-ui, sans-serif; color:#172d33; background:#f3f6f4}
+* {box-sizing:border-box}
+main {max-width:780px; margin:auto; padding:28px 16px 60px}
+header {border-bottom:3px solid #246551; margin-bottom:24px}
+h1 {font-size:clamp(2rem,6vw,3.3rem); line-height:1.12; margin:8px 0 24px}
+h2,h3 {line-height:1.25; margin-top:0}
+section {background:white; border:1px solid #cbd9d2; border-radius:14px; padding:clamp(16px,4vw,32px); margin-bottom:16px}
+b {display:block; color:#315849}
+label {display:block; margin:14px 0}
+textarea,select,button {display:block; font:inherit; border:1px solid #748a80; border-radius:6px; padding:8px 12px; margin-top:4px}
+textarea {width:100%; min-height:76px}
+button {background:#205c49; color:white; cursor:pointer}
+blockquote {border-left:3px solid #80aa97; padding-left:12px; margin-left:0}
+blockquote,[data-reason] {white-space:pre-wrap; overflow-wrap:anywhere}
+[role=status]:empty {display:none}
+[hidden] {display:none!important}
+
+nav a {color:#205c49}
+nav [aria-current=page] {font-weight:bold}
