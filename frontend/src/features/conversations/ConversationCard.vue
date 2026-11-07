@@ -9,6 +9,15 @@ const props = defineProps({
 const activeRange = ref(null)
 const transcript = ref(null)
 const audio = ref(null)
+const useOrganizerPlayer = ref(false)
+
+function onAudioError() {
+  const url = new URL(props.conversation.audioUrl, window.location.href)
+  if (url.protocol === 'https:' && url.hostname.endsWith('.environment.api.powerplatform.com') &&
+      url.pathname.startsWith('/powerautomate/automations/direct/')) {
+    useOrganizerPlayer.value = true
+  }
+}
 
 async function showEvidence(range) {
   const turns = props.conversation.transcript
@@ -27,7 +36,11 @@ async function showEvidence(range) {
 <template>
   <h1>{{ conversation.externalId }}</h1>
   <p class="meta">{{ conversation.language }} · {{ conversation.channel }}</p>
-  <audio v-if="conversation.audioUrl" ref="audio" :src="conversation.audioUrl" controls preload="metadata" aria-label="Запись звонка" />
+  <template v-if="useOrganizerPlayer">
+    <iframe :src="conversation.audioUrl" title="Запись звонка у организатора" sandbox="" referrerpolicy="no-referrer" />
+    <a :href="conversation.audioUrl" target="_blank" rel="noopener noreferrer">Открыть запись у организатора</a>
+  </template>
+  <audio v-else-if="conversation.audioUrl" @error="onAudioError" ref="audio" :src="conversation.audioUrl" controls preload="metadata" aria-label="Запись звонка" />
   <h2>Транскрипт</h2>
   <ol ref="transcript" class="transcript">
     <li v-for="(turn, index) in conversation.transcript" :id="`turn-${index + 1}`" :key="index" tabindex="-1">
@@ -37,3 +50,7 @@ async function showEvidence(range) {
   </ol>
   <EvaluationPanel :key="conversation.id" :conversation-id="conversation.id" :service="service" @evidence="showEvidence" />
 </template>
+
+<style scoped>
+iframe { display: block; width: 100%; height: 14rem; border: 0; }
+</style>
