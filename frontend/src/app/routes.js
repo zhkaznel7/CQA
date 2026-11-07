@@ -1,6 +1,18 @@
 export const routes = [
   { path: '/', redirect: { name: 'conversations' } },
   {
+    path: '/checklists/new', name: 'checklist-new',
+    component: () => import('../features/checklists/ChecklistPage.vue'),
+  },
+  {
+    path: '/checklists/:id', name: 'checklist-editor', props: true,
+    component: () => import('../features/checklists/ChecklistPage.vue'),
+  },
+  {
+    path: '/demo/checklist', name: 'checklist-demo', props: { demo: true },
+    component: () => import('../features/checklists/ChecklistPage.vue'),
+  },
+  {
     path: '/demo/evaluation', name: 'evaluation-demo',
     component: () => import('../features/evaluations/DemoEvaluationPage.vue'),
   },

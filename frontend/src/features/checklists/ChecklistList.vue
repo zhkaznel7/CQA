@@ -5,9 +5,10 @@ import PagedList from '../../shared/PagedList.vue'
 <template>
   <section class="checklist-list">
     <h1>Чек-листы</h1>
+    <p><RouterLink :to="{ name: 'checklist-new' }">Создать чек-лист</RouterLink></p>
+    <p><RouterLink :to="{ name: 'checklist-demo' }">Попробовать редактор без сервера</RouterLink></p>
     <PagedList path="/checklists" empty-text="Чек-листов пока нет." v-slot="{ item }">
-      <strong>{{ item.name }}</strong>
-      <span class="meta">Версия {{ item.version }}</span>
+      <RouterLink :to="{ name: 'checklist-editor', params: { id: item.id } }">{{ item.name }} · версия {{ item.version }}</RouterLink>
     </PagedList>
   </section>
 </template>
