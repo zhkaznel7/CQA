@@ -19,6 +19,12 @@ function row(input, key, index) {
 function check(condition, met, index, group = 1) {
   return {condition, met, group, reason: condition + (met ? ' есть в реплике.' : ' отсутствует в проверенном эпизоде.'), turnIndexes: [index]};
 }
+function discoveryChecks(index, known = true, clarified = true) {
+  return [
+    {...check('Оператор учёл известные детали', known, index), condition_id: 'known_details_considered'},
+    {...check('Оператор уточнил недостающее до ответа', clarified, index, 2), condition_id: 'missing_details_clarified_before_answer'}
+  ];
+}
 function levels(input, key, selected, reason) {
   return input.checklist.criteria.find(c => c.key === key).scaleSteps.map(step =>
     ({value: step.value, met: step.value === selected, reason: step.value === selected ? reason : 'Эта ступень не соответствует эпизоду.'}));
@@ -48,7 +54,7 @@ test('N/A assessment is required, and allowNa alone does not grant N/A', async (
   const input = conversation('p1-ru-001', ['02']);
   const result = row(input, '02', 9);
   result.na_assessment.initial_information_sufficient = false;
-  result.checks = [check('Учёл известные детали', true, 9)];
+  result.checks = discoveryChecks(9);
   assert.equal((await run(input, [result]))[0].na, false);
   result.checks = [];
   await assert.rejects(run(input, [result]), /нет проверок/);
@@ -71,8 +77,8 @@ test('p1-ru-025: departure cannot override insufficient initial information for 
   const discovery = row(input, '02', 9);
   discovery.na_assessment = {condition_met: true, initial_information_sufficient: false,
     reason: 'Данных для ответа изначально не было; клиент ушёл после вопроса оператора.'};
-  discovery.checks = [check('Учёл просьбу о подключении человека', true, 9),
-    check('Уточнил недостающий предмет обращения вопросом «С чем помочь?»', true, 9, 2)];
+  discovery.checks = discoveryChecks(9);
+  discovery.checks[1].reason = 'Оператор спросил «С чем помочь?», поскольку предмет обращения не был известен.';
   const consultation = row(input, '04', 10);
   consultation.na_assessment = {condition_met: true, reason: 'Клиент ушёл до формулировки запроса.'};
   const before = structuredClone(input);
@@ -104,7 +110,7 @@ test('insufficient information requires actual ordinary checks instead of an inv
   result.na_assessment.initial_information_sufficient = false;
   await assert.rejects(run(input, [result]), /нет проверок обязательных условий/);
   result.evidence = [{turnIndex: 9, quote: input.transcript[9].text}];
-  result.checks = [check('Учёл известные детали', false, 9)];
+  result.checks = discoveryChecks(9, false, true);
   assert.equal((await run(input, [result]))[0].answer, false);
 });
 
@@ -125,7 +131,7 @@ test('a sufficiency N/A cannot be evidenced solely by departure or an operator r
 test('initial sufficiency requires a boolean fact, not a missing or coerced value', async () => {
   const input = conversation('p1-ru-025', ['02']);
   const result = row(input, '02', 9);
-  result.checks = [check('Уточнил потребность', true, 9)];
+  result.checks = discoveryChecks(9);
   for (const fact of [null, undefined, 'false', 0, {}]) {
     result.na_assessment.initial_information_sufficient = fact;
     await assert.rejects(run(input, [result]), /initial_information_sufficient/);
@@ -185,7 +191,7 @@ test('disabling N/A keeps an ordinary assessment without applying a sufficiency 
   const input = conversation('p1-ru-025', ['02']);
   input.checklist.criteria[0] = {...input.checklist.criteria[0], allowNa: false};
   const result = row(input, '02', 9);
-  result.checks = [check('Уточнил потребность', true, 9)];
+  result.checks = discoveryChecks(9);
   const [wire] = await run(input, [result], {inspect: body => {
     assert.deepEqual(JSON.parse(body.contents[0].parts[0].text).na_policies, []);
   }});
@@ -193,6 +199,105 @@ test('disabling N/A keeps an ordinary assessment without applying a sufficiency 
   assert.equal(wire.answer, true);
   result.na_assessment.condition_met = true;
   await assert.rejects(run(input, [result]), /N\/A не разрешён/);
+});
+
+test('p1-ru-025: discovery answer is AND of two independently evidenced conditions', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  for (const [known, clarified, expected] of [[true,true,true], [true,false,false], [false,true,false], [false,false,false]]) {
+    const result = row(input, '02', 9);
+    result.na_assessment.initial_information_sufficient = false;
+    result.checks = discoveryChecks(9, known, clarified);
+    // Provider order does not define the conjunction or the explanation order.
+    result.checks.reverse();
+    const before = structuredClone(result);
+    const [wire] = await run(input, [result], {inspect: body => {
+      const data = JSON.parse(body.contents[0].parts[0].text);
+      assert.deepEqual(data.check_policies, [{criterion_id: '02', key: 'need_discovery', checks: [
+        {id: 'known_details_considered', group: 1, condition: 'Оператор учёл известные детали'},
+        {id: 'missing_details_clarified_before_answer', group: 2, condition: 'Оператор уточнил недостающее до ответа'}
+      ]}]);
+      const checkSchema = body.generationConfig.responseJsonSchema.properties.results.items.properties.checks.items;
+      assert.ok(checkSchema.required.includes('condition_id'));
+      assert.match(body.systemInstruction.parts[0].text, /Не объединяй обязательные условия/);
+    }});
+    assert.equal(wire.answer, expected);
+    assert.equal(wire.na, false);
+    assert.equal(wire.na_reason, null);
+    assert.match(wire.explanation, /Оператор учёл известные детали/);
+    assert.match(wire.explanation, /Оператор уточнил недостающее до ответа/);
+    assert.deepEqual(Object.keys(wire).sort(),
+      ['criterion_id','answer','na','na_reason','explanation','evidence','checked_range'].sort());
+    assert.deepEqual(result, before);
+  }
+});
+
+test('the merged discovery check returned in 2.3.0 is rejected instead of counted as both conditions', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  const result = row(input, '02', 9);
+  result.na_assessment.initial_information_sufficient = false;
+  result.checks = [check('Оператор учёл известные детали и уточнил недостающее до ответа', true, 9)];
+  await assert.rejects(run(input, [result]), {code: 'INVALID_MODEL_OUTPUT', status: 502,
+    message: /нужны отдельные checks.*known_details_considered.*missing_details_clarified_before_answer/});
+  result.checks[0].condition_id = 'known_details_considered';
+  await assert.rejects(run(input, [result]), /нужны отдельные checks/);
+});
+
+test('duplicate, unknown and OR-grouped discovery conditions cannot replace a mandatory condition', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  const result = row(input, '02', 9);
+  result.na_assessment.initial_information_sufficient = false;
+  for (const badChecks of [
+    [discoveryChecks(9)[0], discoveryChecks(9)[0]],
+    [discoveryChecks(9)[0], {...discoveryChecks(9)[1], condition_id: 'other'}],
+    [...discoveryChecks(9), discoveryChecks(9)[0]]
+  ]) {
+    result.checks = badChecks;
+    await assert.rejects(run(input, [result]), /нужны отдельные checks/);
+  }
+  result.checks = discoveryChecks(9, true, false);
+  result.checks[1].group = 1;
+  await assert.rejects(run(input, [result]), /отдельные группы И/);
+});
+
+test('each mandatory discovery condition needs its own reason and cited turn', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  const result = row(input, '02', 9);
+  result.na_assessment.initial_information_sufficient = false;
+  for (const position of [0, 1]) {
+    for (const patch of [{reason: ''}, {turnIndexes: []}, {turnIndexes: [8]}, {met: 'true'}]) {
+      result.checks = discoveryChecks(9);
+      Object.assign(result.checks[position], patch);
+      await assert.rejects(run(input, [result]), /обоснования и доказательств/);
+    }
+  }
+});
+
+test('mandatory discovery checks follow the description even when the key is renamed', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  input.checklist.criteria[0] = {...input.checklist.criteria[0], key: 'custom-c2'};
+  const result = row(input, 'custom-c2', 9);
+  result.na_assessment.initial_information_sufficient = false;
+  result.checks = discoveryChecks(9);
+  const [wire] = await run(input, [result], {inspect: body => {
+    assert.equal(JSON.parse(body.contents[0].parts[0].text).check_policies[0].criterion_id, 'custom-c2');
+  }});
+  assert.equal(wire.answer, true);
+  assert.equal(wire.criterion_id, 'custom-c2');
+  result.checks.pop();
+  await assert.rejects(run(input, [result]), /нужны отдельные checks/);
+});
+
+test('a changed criterion definition does not retain old discovery obligations', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  input.checklist.criteria[0] = {...input.checklist.criteria[0], allowNa: false,
+    description: 'Да — оператор задал открытый вопрос.'};
+  const result = row(input, '02', 9);
+  result.checks = [check('Оператор задал открытый вопрос', true, 9)];
+  const [wire] = await run(input, [result], {inspect: body => {
+    assert.deepEqual(JSON.parse(body.contents[0].parts[0].text).check_policies, []);
+  }});
+  assert.equal(wire.answer, true);
+  assert.equal(wire.na, false);
 });
 
 test('ordinary chat greeting cannot acquire a prohibited N/A', async () => {

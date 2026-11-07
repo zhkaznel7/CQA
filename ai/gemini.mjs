@@ -2,18 +2,26 @@ import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {fail} from './http.mjs';
 
-export const PROMPT_VERSION = '2.3.0';
+export const PROMPT_VERSION = '2.3.1';
 const policySource = readFileSync(new URL('./config/na-policies.v1.json', import.meta.url));
 const naPolicies = JSON.parse(policySource).policies;
-// Run identities must change when either the evaluator or its N/A rules change.
+const checkPolicySource = readFileSync(new URL('./config/check-policies.v1.json', import.meta.url));
+const checkPolicies = JSON.parse(checkPolicySource).policies;
+// Run identities cover both sources of configurable criterion rules.
 export const EVALUATOR_SHA256 = createHash('sha256')
-  .update(readFileSync(new URL(import.meta.url))).update('\0').update(policySource).digest('hex');
-const normalizeCondition = text => text.normalize('NFKC').trim().toLocaleLowerCase('ru')
+  .update(readFileSync(new URL(import.meta.url))).update('\0').update(policySource)
+  .update('\0').update(checkPolicySource).digest('hex');
+const normalizeRuleText = text => text.normalize('NFKC').trim().toLocaleLowerCase('ru')
   .replace(/\s+/gu, ' ').replace(/[.!?]+$/u, '').trim();
 function naPolicy(criterion) {
   if (!criterion.allowNa || typeof criterion.naCondition !== 'string') return null;
   return naPolicies.find(policy => criterion.type === policy.criterionType &&
-    policy.conditionAliases.some(alias => normalizeCondition(alias) === normalizeCondition(criterion.naCondition))) ?? null;
+    policy.conditionAliases.some(alias => normalizeRuleText(alias) === normalizeRuleText(criterion.naCondition))) ?? null;
+}
+function checkPolicy(criterion) {
+  if (typeof criterion.description !== 'string') return null;
+  return checkPolicies.find(policy => criterion.type === policy.criterionType &&
+    policy.descriptionAliases.some(alias => normalizeRuleText(alias) === normalizeRuleText(criterion.description))) ?? null;
 }
 
 const prompt = `Оцени работу оператора по переданному чек-листу. Критерии оцениваются независимо.
@@ -51,6 +59,10 @@ condition_met=false означает «основания N/A нет», код �
 {group: положительное целое, condition: одно условие, met: boolean, reason: фактическое обоснование, turnIndexes: индексы доказательств}.
 Все группы обязательны (И), альтернативы внутри группы объединяются через ИЛИ. Итоговый answer вычислит код.
 Для A и B дай две группы, включая отсутствующее действие; для A или B — одну группу с двумя альтернативами.
+Если критерий указан в check_policies, верни ровно по одной проверке checks на каждый заданный id: condition_id=id, group и condition из конфигурации.
+Не объединяй обязательные условия в одну проверку. Для каждого отдельно укажи met, reason и turnIndexes, даже если обе проверки ссылаются на одну реплику.
+«Учёл известные детали» и «Уточнил недостающее до ответа» — две независимые обязательные проверки в разных группах И. Невыполнение любой из них означает Нет.
+Для остальных критериев, если condition_id предусмотрен схемой, укажи null и разбей текущую рубрику на условия самостоятельно. При N/A checks=[].
 Сохраняй условия «если»: если триггер не возник, объясни, почему требование не нарушено.
 Не добавляй «третьим лицам», факт оплаты или согласие клиента, если этого нет в рубрике.
 Реальная помощь может быть реакцией на неудобство без шаблонного извинения. Отказ учитывать опасение клиента, например предложение пропустить проверку, не является положительной реакцией на это опасение.
@@ -92,6 +104,7 @@ function resultSchema(criteria, length) {
   // by validateResults; duplicating this object for every key bloats the
   // provider schema and can exceed structured-output complexity limits.
   const scaleValues = [...new Set(criteria.flatMap(c => c.type === 'scale' ? c.scaleSteps.map(s => s.value) : []))];
+  const conditionIds = [...new Set(criteria.flatMap(c => checkPolicy(c)?.checks.map(check => check.id) ?? []))];
   const row = object({
     criterion_id: {type: 'string', enum: criteria.map(c => c.key)},
     na_assessment: object({
@@ -102,6 +115,8 @@ function resultSchema(criteria, length) {
       reason: {type: 'string'}
     }),
     checks: {type: 'array', items: object({
+      ...(conditionIds.length ? {condition_id: {type: ['string', 'null'], enum: [...conditionIds, null],
+        description: 'ID из check_policies; null для прочих критериев.'}} : {}),
       group: {type: 'integer', minimum: 1}, condition: {type: 'string'},
       met: {type: 'boolean'}, reason: {type: 'string'}, turnIndexes: indexes
     })},
@@ -142,6 +157,23 @@ function booleanAnswer(checks, reject, evidenceIndexes) {
     groups.set(check.group, groups.get(check.group) === true || check.met);
   }
   return [...groups.values()].every(Boolean);
+}
+
+function requiredChecks(checks, criterion, reject) {
+  const policy = checkPolicy(criterion);
+  if (!policy || !Array.isArray(checks) || !checks.length) return checks;
+  const byId = new Map(checks.map(check => [check?.condition_id, check]));
+  if (checks.length !== policy.checks.length || byId.size !== checks.length ||
+      policy.checks.some(spec => !byId.has(spec.id))) {
+    reject('нужны отдельные checks для обязательных условий: ' + policy.checks.map(spec => spec.id).join(', '));
+  }
+  // Stable IDs prevent merging or duplicating mandatory checks. Configured
+  // groups prevent the model from weakening an AND requirement into OR.
+  return policy.checks.map(spec => {
+    const check = byId.get(spec.id);
+    if (check.group !== spec.group) reject('обязательные условия должны использовать заданные отдельные группы И');
+    return {...check, condition: spec.condition};
+  });
 }
 
 function flagAnswer(violations, reject, evidenceIndexes) {
@@ -225,6 +257,7 @@ export function validateResults(rows, {checklist, transcript}) {
       }
     }
     let answer = null;
+    let checks = r.checks;
     if ((na || c.type !== 'flag') && r.violations.length) reject('violations используется только для применимого flag');
     if (na) {
       if (!Array.isArray(r.checks) || r.checks.length || !Array.isArray(r.levels) || r.levels.length) reject('N/A несовместим с обычной оценкой');
@@ -236,7 +269,8 @@ export function validateResults(rows, {checklist, transcript}) {
       answer = flagAnswer(r.violations, reject, evidenceIndexes);
     } else {
       if (!Array.isArray(r.levels) || r.levels.length) reject('boolean не использует уровни');
-      answer = booleanAnswer(r.checks, reject, evidenceIndexes);
+      checks = requiredChecks(checks, c, reject);
+      answer = booleanAnswer(checks, reject, evidenceIndexes);
     }
     const span = r.checked_range;
     if ((r.omission && !span) || (span !== null &&
@@ -248,7 +282,7 @@ export function validateResults(rows, {checklist, transcript}) {
     else if (c.type === 'scale') explanation = r.levels.find(level => level.value === answer).reason;
     else if (c.type === 'flag') explanation = r.violations.map(violation =>
       violation.violation + ' — ' + (violation.detected ? 'выявлено' : 'не выявлено') + '. ' + violation.reason).join(' ');
-    else explanation = r.checks.map(check =>
+    else explanation = checks.map(check =>
       check.condition + ' — ' + (check.met ? 'подтверждено' : 'не подтверждено') + '. ' + check.reason).join(' ');
     if (r.limitations.length) explanation += ' Ограничения: ' + r.limitations.join(' ');
     return {criterion_id: c.key, answer, na, na_reason: na ? r.na_assessment.reason : null,
@@ -347,6 +381,10 @@ async function assess(input, options) {
       na_policies: input.checklist.criteria.flatMap(c => {
         const policy = naPolicy(c);
         return policy ? [{criterion_id: c.key, key: policy.key, instructions: policy.instructions}] : [];
+      }),
+      check_policies: input.checklist.criteria.flatMap(c => {
+        const policy = checkPolicy(c);
+        return policy ? [{criterion_id: c.key, key: policy.key, checks: policy.checks}] : [];
       })
     })}]}], generationConfig}, options, 90000);
   let assessment;

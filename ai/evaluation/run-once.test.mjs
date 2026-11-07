@@ -8,11 +8,12 @@ import {EVALUATOR_SHA256} from '../gemini.mjs';
 
 const inputs = ['one', 'two'].map(conversation_id => ({conversation_id, checklist:{id:'test',version:1}}));
 const identity = {model:'fake', conversation_ids:['one','two']};
-test('run fingerprint covers the evaluator source and N/A policy config', async () => {
+test('run fingerprint covers the evaluator source and both criterion policy configs', async () => {
   const {createHash} = await import('node:crypto');
   const expected = createHash('sha256')
     .update(await readFile(new URL('../gemini.mjs', import.meta.url))).update('\0')
-    .update(await readFile(new URL('../config/na-policies.v1.json', import.meta.url))).digest('hex');
+    .update(await readFile(new URL('../config/na-policies.v1.json', import.meta.url))).update('\0')
+    .update(await readFile(new URL('../config/check-policies.v1.json', import.meta.url))).digest('hex');
   assert.equal(EVALUATOR_SHA256, expected);
   assert.equal(planInput().evaluatorHash, expected);
 });
