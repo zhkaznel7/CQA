@@ -159,3 +159,43 @@ test('provider quota, timeout and authorization errors remain safe', async () =>
   await assert.rejects(evaluateGemini(input, {key: 'test', model: 'test', request}),
     error => error.status === 502 && error.message.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') && !error.message.includes('sensitive'));
 });
+
+test('diagnostics distinguish dispatch, headers, body and validation without logging content', async () => {
+  const input = conversation('p1-ru-025', ['04']);
+  const result = row(input, '04', 10);
+  result.applicability = {met:true, reason:'Запрос не сформулирован.'};
+  const events = [];
+  let calls = 0;
+  await evaluateGemini(input, {key:'secret-test-key', model:'test', onEvent:e=>events.push(e),
+    request:async () => {
+      calls++;
+      return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify({
+        review:{requests:[],issues:[]},results:[result]
+      })}]}}]});
+    }});
+  assert.equal(calls,1);
+  assert.deepEqual(events.map(e=>e.event),['evaluation_started','provider_dispatched','provider_headers','provider_body','evaluation_completed']);
+  assert.equal(events.find(e=>e.event==='provider_headers').http_status,200);
+  assert.ok(events.every(e=>Number.isFinite(e.elapsed_ms)));
+  assert.ok(!JSON.stringify(events).includes('secret-test-key'));
+  assert.ok(!JSON.stringify(events).includes(input.transcript[9].text));
+});
+
+test('timeout location distinguishes no headers from a stalled body; neither is retried', async () => {
+  const input = conversation('p1-ru-025', ['04']);
+  for (const phase of ['awaiting_headers','reading_body']) {
+    const events = [];
+    let calls = 0;
+    const timeout = () => {throw new DOMException('do not log secret payload','TimeoutError');};
+    await assert.rejects(evaluateGemini(input,{key:'test',model:'test',onEvent:e=>events.push(e),
+      request:async () => {
+        calls++;
+        if (phase==='awaiting_headers') timeout();
+        return {status:200,text:async ()=>timeout()};
+      }}),{code:'AI_TIMEOUT',status:504});
+    assert.equal(calls,1);
+    assert.equal(events.find(e=>e.event==='provider_timeout').phase,phase);
+    assert.equal(events.at(-1).error_code,'AI_TIMEOUT');
+    assert.ok(!JSON.stringify(events).includes('secret payload'));
+  }
+});

@@ -177,17 +177,32 @@ export function validateResults(rows, {checklist, transcript}) {
   });
 }
 
-async function generate(body, {key, model, request = fetch}, timeoutMs) {
+function diagnostic(options, event, started, fields = {}) {
+  // A failing log sink must not change the evaluation or cause another API call.
+  try { options.onEvent?.({event, elapsed_ms: Math.round(performance.now() - started), ...fields}); }
+  catch { /* Logging is best effort. */ }
+}
+
+async function generate(body, options, timeoutMs) {
+  const {key, model, request = fetch} = options;
+  const started = performance.now();
+  let phase = 'awaiting_headers';
   const signal = AbortSignal.timeout(timeoutMs);
   let response, payload;
+  diagnostic(options, 'provider_dispatched', started, {timeout_ms: timeoutMs});
   try {
     response = await request('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
       method: 'POST', signal, headers: {'Content-Type': 'application/json', 'x-goog-api-key': key},
       body: JSON.stringify(body)
     });
+    phase = 'reading_body';
+    diagnostic(options, 'provider_headers', started, {http_status: response.status});
     payload = await response.text();
-  } catch {
-    if (signal.aborted) fail(504, 'AI_TIMEOUT', 'Истекли ' + timeoutMs / 1000 + ' секунд ожидания Gemini.');
+    diagnostic(options, 'provider_body', started, {http_status: response.status});
+  } catch (error) {
+    const timedOut = signal.aborted || error?.name === 'TimeoutError';
+    diagnostic(options, timedOut ? 'provider_timeout' : 'provider_network_error', started, {phase});
+    if (timedOut) fail(504, 'AI_TIMEOUT', 'Истекли ' + timeoutMs / 1000 + ' секунд ожидания Gemini.');
     fail(503, 'AI_UNAVAILABLE', 'Соединение с Gemini недоступно.');
   }
   if (response.status === 504 || response.status === 408) fail(504, 'AI_TIMEOUT', 'Gemini не успел ответить.');
@@ -223,7 +238,7 @@ export async function checkGemini(options) {
   if (!JSON.parse(payload).candidates?.[0]?.content?.parts?.some(p => !p.thought && nonempty(p.text))) invalid();
 }
 
-export async function evaluateGemini(input, options) {
+async function assess(input, options) {
   const generationConfig = {responseMimeType: 'application/json',
     responseJsonSchema: resultSchema(input.checklist.criteria, input.transcript.length)};
   if (options.fast && options.model === 'gemini-3.8-flash') generationConfig.thinkingConfig = {thinkingLevel: 'LOW'};
@@ -243,4 +258,18 @@ export async function evaluateGemini(input, options) {
   }
   validateReview(assessment?.review, input.transcript);
   return validateResults(assessment.results, input);
+}
+
+
+export async function evaluateGemini(input, options) {
+  const started = performance.now();
+  diagnostic(options, 'evaluation_started', started);
+  try {
+    const results = await assess(input, options);
+    diagnostic(options, 'evaluation_completed', started, {criteria_returned: results.length});
+    return results;
+  } catch (error) {
+    diagnostic(options, 'evaluation_failed', started, {error_code: error.status ? error.code : 'INTERNAL_ERROR'});
+    throw error;
+  }
 }
