@@ -1,5 +1,9 @@
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
 
+export function apiUrl(path) {
+  return baseUrl + path
+}
+
 async function requestJson(path, { signal, body, method }) {
   const options = { signal, headers: { Accept: 'application/json' } }
   if (body !== undefined) {
@@ -7,7 +11,7 @@ async function requestJson(path, { signal, body, method }) {
     options.headers['Content-Type'] = 'application/json'
     options.body = JSON.stringify(body)
   }
-  const response = await fetch(baseUrl + path, options)
+  const response = await fetch(apiUrl(path), options)
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
     const error = new Error(payload?.error?.message || `Ошибка API (HTTP ${response.status})`)

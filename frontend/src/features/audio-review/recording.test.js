@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { recordingFor } from './recording.js'
+import { recordingFor, recordingSource } from './recording.js'
 
 it('привязывает вывод по исходному индексу и только при наличии интервала в записи', () => {
   const conversation = { audioUrl: '/call', transcript: [
@@ -13,4 +13,11 @@ it('привязывает вывод по исходному индексу и 
   expect(audio.turns).toHaveLength(1)
   expect(audio.turns[0].words[0]).toEqual({ text: 'Привет!', start: 2.55, end: 3.1 })
   expect(audio.findings[0]).toMatchObject({ criterion: 'Контакт', start: 2.5, end: 3.2 })
+})
+
+it('загружает запись из плеера организатора по UUID через API и сохраняет прямые ссылки', () => {
+  const audioUrl = 'https://example.environment.api.powerplatform.com/powerautomate/automations/direct/player'
+  expect(recordingSource({ id: 'call', audioUrl })).toBe('/api/conversations/call/audio')
+  expect(recordingSource({ audioUrl: 'https://example.org/call.mp3' })).toBe('https://example.org/call.mp3')
+  expect(recordingSource({ audioUrl: null })).toBe('')
 })

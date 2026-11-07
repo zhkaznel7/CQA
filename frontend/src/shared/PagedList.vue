@@ -10,7 +10,7 @@ const page = ref(1)
 </script>
 
 <template>
-  <RemoteData :path="`${path}?page=${page}`" v-slot="{ payload }">
+  <RemoteData :path="`${path}${path.includes('?') ? '&' : '?'}page=${page}`" v-slot="{ payload }">
     <p v-if="!payload.data.length">{{ emptyText }}</p>
     <ul v-else class="records">
       <li v-for="item in payload.data" :key="item.id"><slot :item="item" /></li>

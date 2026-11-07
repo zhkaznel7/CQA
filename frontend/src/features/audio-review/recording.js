@@ -1,3 +1,18 @@
+import { apiUrl } from '../../shared/api.js'
+
+export function recordingSource(conversation) {
+  if (!conversation.audioUrl) return ''
+  try {
+    const url = new URL(conversation.audioUrl, window.location.href)
+    if (!['http:', 'https:'].includes(url.protocol)) return ''
+    if (url.protocol === 'https:' && url.hostname.endsWith('.environment.api.powerplatform.com') &&
+        url.pathname.startsWith('/powerautomate/automations/direct/')) {
+      return apiUrl('/conversations/' + encodeURIComponent(conversation.id) + '/audio')
+    }
+    return url.href
+  } catch { return '' }
+}
+
 function seconds(ms) {
   if (ms == null || ms === '') return null
   const n = Number(ms)
@@ -29,5 +44,5 @@ export function recordingFor(conversation, result) {
       criterion: name, explanation: row.explanation,
     }))
   })
-  return { audioUrl: conversation.audioUrl, turns, findings }
+  return { audioUrl: recordingSource(conversation), turns, findings }
 }
