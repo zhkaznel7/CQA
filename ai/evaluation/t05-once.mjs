@@ -3,7 +3,7 @@ import {existsSync, readFileSync, writeFileSync, appendFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {runBatch} from './run-once.mjs';
-import {evaluateGemini, PROMPT_VERSION} from '../gemini.mjs';
+import {evaluateGemini, PROMPT_VERSION, EVALUATOR_SHA256} from '../gemini.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const MODEL = 'gemini-3.5-flash-lite';
@@ -19,7 +19,7 @@ export async function runT05({outputDir, key, request = fetch, log = console.log
     inputs: [input], outputDir, log, stopOnRequestRejected: true,
     identity: {schema_version:1, model:MODEL, prompt_version:PROMPT_VERSION,
       input_sha256:hash(readFileSync(inputFile)),
-      evaluator_sha256:hash(readFileSync(path.join(here,'../gemini.mjs')))},
+      evaluator_sha256:EVALUATOR_SHA256},
     evaluate: data => evaluateGemini(data, {key, model:MODEL,
       request: async (url, init) => {
         const response = await request(url, init);

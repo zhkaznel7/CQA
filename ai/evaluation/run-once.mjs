@@ -4,7 +4,7 @@ import {mkdir, open, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {evaluateGemini} from '../gemini.mjs';
+import {evaluateGemini, EVALUATOR_SHA256} from '../gemini.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const hash = data => createHash('sha256').update(data).digest('hex');
@@ -39,7 +39,7 @@ export function planInput() {
     };
   });
   return {inputs, labelsHash: hash(readFileSync(labelFile)), sourceHash: hash(rawSource),
-    rubricHash: labels.rubric.sha256, evaluatorHash: hash(readFileSync(path.join(here, '../gemini.mjs')))};
+    rubricHash: labels.rubric.sha256, evaluatorHash: EVALUATOR_SHA256};
 }
 
 // No retries. The durable attempt marker is created BEFORE entering the provider.

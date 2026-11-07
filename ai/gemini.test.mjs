@@ -11,8 +11,8 @@ function conversation(id, keys) {
     checklist: {...checklist, criteria: checklist.criteria.filter(c => keys.includes(c.key))}};
 }
 function row(input, key, index) {
-  return {criterion_id: key, na_assessment: {condition_met: false, reason: 'Условие N/A не выполнено.'},
-    checks: [], levels: [], explanation: 'Предварительное объяснение модели.',
+  return {criterion_id: key, na_assessment: {condition_met: false, initial_information_sufficient: null, reason: 'Условие N/A не выполнено.'},
+    checks: [], violations: [], levels: [], explanation: 'Предварительное объяснение модели.',
     evidence: [{turnIndex: index, quote: input.transcript[index].text}],
     omission: false, checked_range: {start: 0, end: input.transcript.length - 1}, limitations: []};
 }
@@ -47,6 +47,7 @@ test('p1-ru-025: N/A is derived from na_assessment, not the draft numeric answer
 test('N/A assessment is required, and allowNa alone does not grant N/A', async () => {
   const input = conversation('p1-ru-001', ['02']);
   const result = row(input, '02', 9);
+  result.na_assessment.initial_information_sufficient = false;
   result.checks = [check('Учёл известные детали', true, 9)];
   assert.equal((await run(input, [result]))[0].na, false);
   result.checks = [];
@@ -58,10 +59,140 @@ test('N/A assessment is required, and allowNa alone does not grant N/A', async (
 test('N/A with evidence for sufficient initial details produces a consistent wire result', async () => {
   const input = conversation('p1-kz-005', ['02']);
   const result = row(input, '02', 0);
-  result.na_assessment = {condition_met: true, reason: 'Клиент уже указал нужное действие; дополнительных уточнений не требовалось.'};
+  result.na_assessment = {condition_met: true, initial_information_sufficient: true,
+    reason: 'Клиент уже указал нужное действие; дополнительных уточнений не требовалось.'};
   assert.equal((await run(input, [result]))[0].na, true);
   result.checks = [check('Дополнительное уточнение', true, 0)];
   await assert.rejects(run(input, [result]), /N\/A несовместим/);
+});
+
+test('p1-ru-025: departure cannot override insufficient initial information for discovery', async () => {
+  const input = conversation('p1-ru-025', ['02','04']);
+  const discovery = row(input, '02', 9);
+  discovery.na_assessment = {condition_met: true, initial_information_sufficient: false,
+    reason: 'Данных для ответа изначально не было; клиент ушёл после вопроса оператора.'};
+  discovery.checks = [check('Учёл просьбу о подключении человека', true, 9),
+    check('Уточнил недостающий предмет обращения вопросом «С чем помочь?»', true, 9, 2)];
+  const consultation = row(input, '04', 10);
+  consultation.na_assessment = {condition_met: true, reason: 'Клиент ушёл до формулировки запроса.'};
+  const before = structuredClone(input);
+  const [wire, other] = await run(input, [discovery, consultation], {inspect: body => {
+    const data = JSON.parse(body.contents[0].parts[0].text);
+    assert.deepEqual(data.na_policies.map(p => [p.criterion_id, p.key]), [['02','initial_information_sufficient']]);
+    assert.match(data.na_policies[0].instructions, /Уход клиента не доказывает/);
+    const assessment = body.generationConfig.responseJsonSchema.properties.results.items.properties.na_assessment;
+    assert.ok(assessment.required.includes('initial_information_sufficient'));
+  }});
+  assert.equal(wire.na, false);
+  assert.equal(wire.na_reason, null);
+  assert.equal(wire.answer, true);
+  assert.match(wire.explanation, /С чем помочь/);
+  assert.equal(other.na, true); // Departure remains valid for its own configured condition.
+  assert.equal(other.answer, null);
+  assert.deepEqual(input, before);
+  assert.deepEqual(Object.keys(wire).sort(),
+    ['criterion_id','answer','na','na_reason','explanation','evidence','checked_range'].sort());
+});
+
+test('insufficient information requires actual ordinary checks instead of an invented positive answer', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  const result = row(input, '02', 10);
+  // Reproduce the old response: only a departure event and a contradictory N/A reason.
+  result.na_assessment = {condition_met: true,
+    reason: 'Клиент ушёл до формулировки запроса. Данных для ответа изначально не было.'};
+  await assert.rejects(run(input, [result]), /initial_information_sufficient/);
+  result.na_assessment.initial_information_sufficient = false;
+  await assert.rejects(run(input, [result]), /нет проверок обязательных условий/);
+  result.evidence = [{turnIndex: 9, quote: input.transcript[9].text}];
+  result.checks = [check('Учёл известные детали', false, 9)];
+  assert.equal((await run(input, [result]))[0].answer, false);
+});
+
+test('a sufficiency N/A cannot be evidenced solely by departure or an operator reply', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  for (const index of [9, 10]) {
+    const result = row(input, '02', index);
+    result.na_assessment = {condition_met: true, initial_information_sufficient: true,
+      reason: 'Данных хватало с самого начала.'};
+    await assert.rejects(run(input, [result]), /цитату клиента до первого ответа оператора/);
+  }
+  input.transcript.push({turnIndex: 11, timestamp: '00:30', speaker: 'client', text: 'Где тарифы?'});
+  const result = row(input, '02', 11);
+  result.na_assessment = {condition_met: true, initial_information_sufficient: true, reason: 'Клиент задал вопрос.'};
+  await assert.rejects(run(input, [result]), /цитату клиента до первого ответа оператора/);
+});
+
+test('initial sufficiency requires a boolean fact, not a missing or coerced value', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  const result = row(input, '02', 9);
+  result.checks = [check('Уточнил потребность', true, 9)];
+  for (const fact of [null, undefined, 'false', 0, {}]) {
+    result.na_assessment.initial_information_sufficient = fact;
+    await assert.rejects(run(input, [result]), /initial_information_sufficient/);
+  }
+});
+
+test('a sufficiency fact cannot introduce N/A against an explicit negative N/A assessment', async () => {
+  const input = conversation('p1-kz-005', ['02']);
+  const result = row(input, '02', 0);
+  result.na_assessment = {condition_met: false, initial_information_sufficient: true,
+    reason: 'Условие N/A не выполнено.'};
+  await assert.rejects(run(input, [result]), /вывод N\/A противоречит/);
+});
+
+test('the sufficiency policy follows the configured condition across keys and transcript languages', async () => {
+  for (const [language, question] of [
+    ['RU', 'Где посмотреть публичные тарифы компании?'],
+    ['KZ', 'Компанияның жария тарифтерін қайдан көруге болады?'],
+    ['EN', 'Where can I find the public company tariffs?']
+  ]) {
+    const input = conversation('p1-ru-025', ['02']);
+    input.language = language;
+    input.checklist.criteria[0] = {...input.checklist.criteria[0], key: 'discovery-custom',
+      naCondition: '  ДАННЫХ для ответа\nхватало с самого начала.  '};
+    input.transcript = [
+      {turnIndex: 0, timestamp: '00:00', speaker: 'client', text: question},
+      {turnIndex: 1, timestamp: '00:01', speaker: 'operator', text: 'https://example.test/tariffs'}
+    ];
+    const result = row(input, 'discovery-custom', 0);
+    result.na_assessment = {condition_met: true, initial_information_sufficient: true,
+      reason: 'Исходный вопрос о месте публикации тарифов не требовал уточнения потребности.'};
+    const [wire] = await run(input, [result], {inspect: body => {
+      const data = JSON.parse(body.contents[0].parts[0].text);
+      assert.equal(data.na_policies[0].criterion_id, 'discovery-custom');
+    }});
+    assert.equal(wire.criterion_id, 'discovery-custom');
+    assert.equal(wire.na, true);
+    assert.equal(wire.answer, null);
+    assert.equal(wire.na_reason, result.na_assessment.reason);
+  }
+});
+
+test('changing discovery N/A condition does not retain the old sufficiency rule', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  input.checklist.criteria[0] = {...input.checklist.criteria[0],
+    naCondition: 'Клиент ушёл до формулировки запроса.'};
+  const result = row(input, '02', 10);
+  result.na_assessment = {condition_met: true, reason: 'Клиент покинул чат до описания вопроса.'};
+  const [wire] = await run(input, [result], {inspect: body => {
+    assert.deepEqual(JSON.parse(body.contents[0].parts[0].text).na_policies, []);
+  }});
+  assert.equal(wire.na, true);
+  assert.equal(wire.na_reason, result.na_assessment.reason);
+});
+
+test('disabling N/A keeps an ordinary assessment without applying a sufficiency policy', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  input.checklist.criteria[0] = {...input.checklist.criteria[0], allowNa: false};
+  const result = row(input, '02', 9);
+  result.checks = [check('Уточнил потребность', true, 9)];
+  const [wire] = await run(input, [result], {inspect: body => {
+    assert.deepEqual(JSON.parse(body.contents[0].parts[0].text).na_policies, []);
+  }});
+  assert.equal(wire.na, false);
+  assert.equal(wire.answer, true);
+  result.na_assessment.condition_met = true;
+  await assert.rejects(run(input, [result]), /N\/A не разрешён/);
 });
 
 test('ordinary chat greeting cannot acquire a prohibited N/A', async () => {
@@ -94,7 +225,7 @@ test('p1-en-014: reaction to concern is separately required for empathy', async 
   assert.match(wire.explanation, /Реакция на опасение о проверке личности — не подтверждено/);
 });
 
-test('p1-en-015: all levels are checked and selected level explains the communication failure', async () => {
+test('p1-en-015: selected level explains the communication failure', async () => {
   const input = conversation('p1-en-015', ['06']);
   const result = row(input, '06', 10);
   result.levels = levels(input, '06', 4, 'Клиент переспросил Settings where? после неясной инструкции.');
@@ -104,21 +235,24 @@ test('p1-en-015: all levels are checked and selected level explains the communic
   const [wire] = await run(input, [result], {review});
   assert.equal(wire.answer, 4);
   assert.match(wire.explanation, /переспросил/);
-  result.levels.pop();
-  await assert.rejects(run(input, [result]), /каждой ступени/);
+  result.levels = [];
+  await assert.rejects(run(input, [result]), /ступень шкалы/);
 });
 
 test('flag computes OR across each checked violation, with no extra third-party condition', async () => {
   const input = conversation('p1-en-014', ['08']);
   const result = row(input, '08', 10);
-  result.checks = [check('Оскорбление', false, 10), check('Платная услуга в обход компании', false, 10),
-    check('Раскрытие конфиденциальной информации', true, 10)];
+  result.violations = [
+    {violation:'Оскорбление',detected:false,reason:'Оскорбления нет.',turnIndexes:[10]},
+    {violation:'Платная услуга в обход компании',detected:false,reason:'Такой услуги нет.',turnIndexes:[10]},
+    {violation:'Раскрытие конфиденциальной информации',detected:true,reason:'Раскрыт статус счёта до проверки.',turnIndexes:[10]}
+  ];
   const [wire] = await run(input, [result], {inspect: body => {
     assert.match(body.systemInstruction.parts[0].text, /Не добавляй «третьим лицам»/);
   }});
   assert.equal(wire.answer, true);
   assert.equal(wire.na, false);
-  result.checks[2].met = false;
+  result.violations[2].detected = false;
   result.checked_range = {start: 10, end: 10};
   await assert.rejects(run(input, [result]), /всего диалога/);
 });
@@ -146,7 +280,7 @@ test('quotes, ranges, duplicate keys, levels and review links are validated', as
     {omission: true, checked_range: null},
     {levels: base.levels.map(l => ({...l, met: false}))}
   ]) await assert.rejects(run(input, [{...base, ...patch}]), {status: 502});
-  await assert.rejects(run(input, [base], {review: {requests: [{turnIndex: 9, answerTurnIndexes: [], status: 'unanswered', summary: 'wrong role'}], issues: []}}), /обзоре/);
+  assert.equal((await run(input, [base], {review: {requests: [{turnIndex: 9, answerTurnIndexes: [], status: 'unanswered', summary: 'wrong role'}], issues: []}}))[0].answer,20);
   assert.throws(() => validateResults([base, base], {...input, checklist: {...input.checklist, criteria: [input.checklist.criteria[0], {...input.checklist.criteria[0], key: 'other'}]}}), /ключ/);
 });
 
@@ -213,7 +347,7 @@ test('provider schema is compact while per-criterion validation stays strict', a
   assert.ok(JSON.stringify(schema).length < 5000);
   const result = row(input,'06',9);
   result.levels = [{value:20,met:true,reason:'Wrong scale'}];
-  assert.throws(()=>validateResults([result],{...input,checklist:{...input.checklist,criteria:[input.checklist.criteria.find(c=>c.key==='06')]}}),/ступени/);
+  assert.throws(()=>validateResults([result],{...input,checklist:{...input.checklist,criteria:[input.checklist.criteria.find(c=>c.key==='06')]}}),/ступень/);
 });
 
 test('400 diagnostics classify schema and key errors without leaking provider text', async () => {
@@ -307,4 +441,50 @@ test('T05: public tariffs give N/A for configurable identification key c3', asyn
   assert.equal(wire.answer,null);
   assert.ok(wire.na_reason);
   assert.equal(wire.evidence[0].turnIndex,0);
+});
+
+test('auxiliary routing review cannot invalidate correctly supported criterion answers', async () => {
+  const input = conversation('p1-ru-025',['04']);
+  const result = row(input,'04',10);
+  result.na_assessment = {condition_met:true,reason:'Клиент ушёл до формулировки запроса.'};
+  const events=[];
+  let calls=0;
+  const review={requests:[{turnIndex:0,answerTurnIndexes:[],status:'next_step',summary:'Подключить человека'}],issues:[]};
+  const request=async()=>{calls++;return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify({review,results:[result]})}]}}]});};
+  const [wire]=await evaluateGemini(input,{key:'test',model:'test',request,onEvent:e=>events.push(e)});
+  assert.equal(calls,1);
+  assert.equal(wire.na,true);
+  assert.ok(events.some(e=>e.event==='review_warning'));
+  assert.equal(events.at(-1).event,'evaluation_completed');
+  result.evidence=[{turnIndex:10,quote:'invented quote'}];
+  await assert.rejects(evaluateGemini(input,{key:'test',model:'test',request}),/цитата не совпала/);
+});
+
+test('absence of violations never becomes a positive flag via generic met=true', async () => {
+  const input=conversation('p1-ru-025',['08']);
+  const result=row(input,'08',9);
+  result.violations=[
+    {violation:'Оскорбление',detected:false,reason:'Оскорблений нет.',turnIndexes:[9]},
+    {violation:'Платная услуга в обход компании',detected:false,reason:'Предложения нет.',turnIndexes:[9]},
+    {violation:'Раскрытие конфиденциальной информации',detected:false,reason:'Раскрытия нет.',turnIndexes:[9]}
+  ];
+  const [wire]=await run(input,[result]);
+  assert.equal(wire.answer,false);
+  assert.match(wire.explanation,/не выявлено/);
+  result.checks=[check('Грубые ошибки не выявлены',true,9)];
+  await assert.rejects(run(input,[result]),/flag использует violations/);
+});
+
+test('one justified allowed scale level is sufficient without enumerating rejected levels', async () => {
+  const input=conversation('p1-ru-025',['06']);
+  const result=row(input,'06',9);
+  result.levels=[{value:10,met:true,reason:'Единственная реплика оператора ясна и связна.'}];
+  const [wire]=await run(input,[result]);
+  assert.equal(wire.answer,10);
+  assert.equal(wire.na,false);
+  assert.match(wire.explanation,/ясна и связна/);
+  result.levels=[{value:20,met:true,reason:'Чужая шкала'}];
+  await assert.rejects(run(input,[result]),/ступень/);
+  result.levels=[{value:10,met:true,reason:'Первый'},{value:10,met:true,reason:'Повтор'}];
+  await assert.rejects(run(input,[result]),/повторная ступень/);
 });

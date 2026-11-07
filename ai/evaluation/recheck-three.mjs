@@ -1,7 +1,8 @@
-import {appendFileSync, existsSync} from 'node:fs';
+import {appendFileSync, existsSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
+import {parseArgs} from 'node:util';
 import {planInput, runBatch} from './run-once.mjs';
 import {evaluateGemini, PROMPT_VERSION} from '../gemini.mjs';
 
@@ -13,14 +14,35 @@ export function selectThree(inputs, single = false) {
   return selected;
 }
 
+export function runSelection(args) {
+  const {values} = parseArgs({args, options: {
+    'dry-run': {type: 'boolean'},
+    'single-ru025': {type: 'boolean'},
+    'ru025-na-v2-1': {type: 'boolean'},
+    'run-name': {type: 'string'}
+  }});
+  const updated = values['ru025-na-v2-1'] === true;
+  const single = updated || values['single-ru025'] === true;
+  if (updated && values['single-ru025']) throw Error('Параметры --single-ru025 и --ru025-na-v2-1 несовместимы.');
+  const name = values['run-name'];
+  if (name !== undefined && (!single || !/^[a-z0-9][a-z0-9-]{0,79}$/.test(name))) {
+    throw Error('--run-name разрешён только для одного чата, используйте латинские буквы, цифры и дефис.');
+  }
+  const suffix = name ?? (updated ? 'ru025-na-v2-1' : single ? 'ru025-schema-check' : 'recheck-v2');
+  return {
+    single, ids: single ? ['p1-ru-025'] : IDS,
+    directory: 'predictions-' + suffix,
+    report: 'report-' + suffix + '.json'
+  };
+}
+
 async function main() {
   const args = process.argv.slice(2);
-  if (args.some(a => !['--dry-run', '--single-ru025'].includes(a))) throw Error('Параметры: --dry-run, --single-ru025');
-  const single = args.includes('--single-ru025');
-  const ids = single ? ['p1-ru-025'] : IDS;
+  const selection = runSelection(args);
+  const {single, ids} = selection;
   const {inputs: allInputs, ...provenance} = planInput();
   const inputs = selectThree(allInputs, single);
-  const outputDir = path.join(here, single ? 'predictions-ru025-schema-check' : 'predictions-recheck-v2');
+  const outputDir = path.join(here, selection.directory);
   const baselineDir = path.join(here, 'predictions');
   const model = 'gemini-3.5-flash-lite';
   const identity = {schema_version: 1, ...provenance, model, fast: false,
@@ -45,14 +67,22 @@ async function main() {
     !existsSync(path.join(outputDir, '.run', cid + '.json')));
   if (pending && !key) throw Error('Задайте GEMINI_API_KEY в этом терминале. Запросов ещё не было.');
   const summary = await runBatch({inputs, outputDir, identity, stopOnRequestRejected: true, evaluate: input =>
-    evaluateGemini(input, {key, model, onEvent: event => {
+    evaluateGemini(input, {key, model, request: async (url, init) => {
+      const response = await fetch(url, init);
+      return {status: response.status, ok: response.ok, headers: response.headers,
+        text: async () => {
+          const payload = await response.text();
+          if (response.ok) writeFileSync(path.join(outputDir, '.run', 'provider-response.json'), payload, {mode: 0o600});
+          return payload;
+        }};
+    }, onEvent: event => {
       appendFileSync(path.join(outputDir, '.run', 'diagnostics.log'),
         JSON.stringify({timestamp: new Date().toISOString(), conversation_id: input.conversation_id, model, ...event}) + String.fromCharCode(10));
     }})});
   console.log('Сбор ' + inputs.length + ' чатов завершён:', summary);
   const result = spawnSync(python, [path.join(here, 'compare.py'),
     '--predictions', outputDir, '--ids', ids.join(','), '--baseline', baselineDir,
-    '--report', path.join(here, single ? 'report-ru025-schema-check.json' : 'report-recheck-v2.json')], {stdio: 'inherit'});
+    '--report', path.join(here, selection.report)], {stdio: 'inherit'});
   if (result.status !== 0) throw Error('Не удалось завершить сравнение; ответы сохранены, отправлять их повторно не нужно.');
 }
 

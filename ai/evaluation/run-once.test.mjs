@@ -3,10 +3,19 @@ import assert from 'node:assert/strict';
 import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {runBatch} from './run-once.mjs';
+import {runBatch, planInput} from './run-once.mjs';
+import {EVALUATOR_SHA256} from '../gemini.mjs';
 
 const inputs = ['one', 'two'].map(conversation_id => ({conversation_id, checklist:{id:'test',version:1}}));
 const identity = {model:'fake', conversation_ids:['one','two']};
+test('run fingerprint covers the evaluator source and N/A policy config', async () => {
+  const {createHash} = await import('node:crypto');
+  const expected = createHash('sha256')
+    .update(await readFile(new URL('../gemini.mjs', import.meta.url))).update('\0')
+    .update(await readFile(new URL('../config/na-policies.v1.json', import.meta.url))).digest('hex');
+  assert.equal(EVALUATOR_SHA256, expected);
+  assert.equal(planInput().evaluatorHash, expected);
+});
 async function temporary(run) {
   const directory = await mkdtemp(path.join(os.tmpdir(),'cqa-once-'));
   try { await run(directory); } finally { await rm(directory,{recursive:true,force:true}); }
