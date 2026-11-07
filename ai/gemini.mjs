@@ -104,7 +104,7 @@ function resultSchema(criteria, length) {
   // by validateResults; duplicating this object for every key bloats the
   // provider schema and can exceed structured-output complexity limits.
   const scaleValues = [...new Set(criteria.flatMap(c => c.type === 'scale' ? c.scaleSteps.map(s => s.value) : []))];
-  const conditionIds = [...new Set(criteria.flatMap(c => checkPolicy(c)?.checks.map(check => check.id) ?? []))];
+  const hasCheckPolicy = criteria.some(c => checkPolicy(c));
   const row = object({
     criterion_id: {type: 'string', enum: criteria.map(c => c.key)},
     na_assessment: object({
@@ -115,7 +115,7 @@ function resultSchema(criteria, length) {
       reason: {type: 'string'}
     }),
     checks: {type: 'array', items: object({
-      ...(conditionIds.length ? {condition_id: {type: ['string', 'null'], enum: [...conditionIds, null],
+      ...(hasCheckPolicy ? {condition_id: {type: ['string', 'null'],
         description: 'ID из check_policies; null для прочих критериев.'}} : {}),
       group: {type: 'integer', minimum: 1}, condition: {type: 'string'},
       met: {type: 'boolean'}, reason: {type: 'string'}, turnIndexes: indexes

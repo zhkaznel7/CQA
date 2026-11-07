@@ -218,6 +218,8 @@ test('p1-ru-025: discovery answer is AND of two independently evidenced conditio
       ]}]);
       const checkSchema = body.generationConfig.responseJsonSchema.properties.results.items.properties.checks.items;
       assert.ok(checkSchema.required.includes('condition_id'));
+      assert.deepEqual(checkSchema.properties.condition_id.type, ['string', 'null']);
+      assert.equal(Object.hasOwn(checkSchema.properties.condition_id, 'enum'), false);
       assert.match(body.systemInstruction.parts[0].text, /Не объединяй обязательные условия/);
     }});
     assert.equal(wire.answer, expected);
