@@ -70,6 +70,8 @@ def validate_result(result, criterion, transcript):
         start, end = span.get("start"), span.get("end")
         if type(start) is not int or type(end) is not int or not 0 <= start <= end < len(transcript):
             raise ValueError("границы checked_range вне транскрипта")
+        if any(not start <= item["turnIndex"] <= end for item in evidence):
+            raise ValueError("evidence вне checked_range (границы включительные)")
 
 
 def read_predictions(path, expected_ids):

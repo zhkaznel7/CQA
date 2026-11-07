@@ -96,5 +96,59 @@ class BaselineTests(unittest.TestCase):
         self.assertIn("after_explanation", changed[0])
 
 
+
+class EvidenceRangeTests(unittest.TestCase):
+    def setUp(self):
+        self.transcript = [
+            {"speaker": "client", "text": "Запрос"},
+            {"speaker": "operator", "text": "Здравствуйте!"}
+        ]
+        self.criterion = {"key": "c3", "name": "Приветствие", "type": "boolean", "allowNa": False}
+        self.result = {
+            "criterion_id": "c3", "answer": True, "na": False, "na_reason": None,
+            "explanation": "Приветствие присутствует.",
+            "evidence": [{"turnIndex": 1, "quote": "Здравствуйте!"}],
+            "checked_range": {"start": 0, "end": 0}
+        }
+
+    def report(self):
+        expected = {**copy.deepcopy(self.result), "checked_range": None,
+                    "review": {"status": "approved", "disputed": False}}
+        labels = {
+            "rubric": {"version": 1, "snapshot": {"criteria": [self.criterion]}},
+            "conversations": [{
+                "conversation_id": "BUG-004", "language": "RU", "split": "development",
+                "transcript_sha256": comparison.canonical_hash(self.transcript),
+                "results": [expected]
+            }]
+        }
+        predictions = {"BUG-004": {"conversation_id": "BUG-004", "checklist_version": 1,
+                                   "results": [self.result]}}
+        return comparison.compare(labels, predictions, {"BUG-004": {"transcript": self.transcript}})
+
+    def test_bug004_true_quote_outside_range_is_unavailable_not_match(self):
+        report = self.report()
+        detail = report["details"][0]
+        self.assertEqual(detail["status"], "unavailable")
+        self.assertIn("evidence вне checked_range", detail["problem"])
+        self.assertEqual(report["criteria"]["c3"].get("approved_matches", 0), 0)
+        self.assertEqual(report["criteria"]["c3"].get("approved_valid", 0), 0)
+        self.assertEqual(report["criteria"]["c3"]["approved_unavailable"], 1)
+
+    def test_bug004_quote_inside_single_turn_range_is_match(self):
+        self.result["checked_range"] = {"start": 1, "end": 1}
+        self.assertEqual(self.report()["details"][0]["status"], "match")
+
+    def test_both_endpoints_are_inclusive_and_every_quote_must_be_inside(self):
+        self.result["evidence"].append({"turnIndex": 0, "quote": "Запрос"})
+        self.result["checked_range"] = {"start": 0, "end": 1}
+        self.assertEqual(self.report()["details"][0]["status"], "match")
+        self.result["checked_range"] = {"start": 1, "end": 1}
+        self.assertEqual(self.report()["details"][0]["status"], "unavailable")
+
+    def test_missing_range_allows_a_valid_quote_as_in_backend(self):
+        self.result["checked_range"] = None
+        self.assertEqual(self.report()["details"][0]["status"], "match")
+
 if __name__ == "__main__":
     unittest.main()
