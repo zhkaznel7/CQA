@@ -29,6 +29,17 @@ test('wire request uses the exact agreed fields and original timestamps', () => 
   assert.equal(request.transcript[1].timestamp, 1500);
 });
 
+test('wire channel aliases match team AI without changing stored data or N/A context', () => {
+  for (const [stored, expected] of [['chat', 'agent chat'], ['agent chat', 'agent chat'], ['voice', 'voice call'], ['call', 'voice call'], ['voice call', 'voice call']]) {
+    const original = { ...conversation, channel: stored };
+    const payload = buildAiRequest(original, checklist);
+    assert.equal(payload.channel, expected);
+    assert.equal(original.channel, stored);
+    assert.deepEqual(original.transcript, conversation.transcript);
+  }
+  assert.equal(buildAiRequest({ ...conversation, channel: 'custom-channel' }, checklist).channel, 'custom-channel');
+});
+
 test('local adapter supports RU/KZ/EN and declared boolean/scale/flag types', async () => {
   for (const language of ['RU', 'KZ', 'EN']) {
     const response = await createMockAiClient().evaluate({ ...request, language });
@@ -85,6 +96,13 @@ test('AI network errors and invalid responses are sanitized and never fall back 
   ]) {
     const client = createAiClient({ AI_MODE: 'http', AI_MAX_RESPONSE_BYTES: 100 }, implementation);
     await assert.rejects(() => client.evaluate(request), (error) => bad(expected)(error) && !error.message.includes('private'));
+  }
+});
+
+test('upstream HTTP 503/504 keep unavailable/timeout semantics without exposing provider bodies', async () => {
+  for (const [status, code] of [[503, 'AI_UNAVAILABLE'], [504, 'AI_TIMEOUT']]) {
+    const client = createAiClient({ AI_MODE: 'http' }, async () => new Response('private upstream body', { status }));
+    await assert.rejects(() => client.evaluate(request), (error) => error.status === status && error.code === code && !error.message.includes('private'));
   }
 });
 

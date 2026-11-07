@@ -2,6 +2,12 @@ import { ApiError } from '../../middleware/api-error.js';
 import { aiResponseSchema } from './evaluations.schema.js';
 import { confirmApplicability } from './applicability.js';
 
+// Team AI wire vocabulary. Keep stored channels intact for applicability rules.
+const aiChannels = new Map([
+  ['chat', 'agent chat'], ['agent chat', 'agent chat'],
+  ['voice', 'voice call'], ['call', 'voice call'], ['voice call', 'voice call'],
+]);
+
 export function buildAiRequest(conversation, checklist) {
   if (!Array.isArray(conversation.transcript) || !conversation.transcript.length
     || conversation.transcript.some((turn, index) => !turn || typeof turn.text !== 'string' || !turn.text.trim()
@@ -9,7 +15,7 @@ export function buildAiRequest(conversation, checklist) {
     throw new ApiError(422, 'INVALID_TRANSCRIPT', 'Conversation has no valid indexed transcript');
   }
   return {
-    conversation_id: conversation.id, channel: conversation.channel, language: conversation.language,
+    conversation_id: conversation.id, channel: aiChannels.get(conversation.channel) ?? conversation.channel, language: conversation.language,
     transcript: conversation.transcript.map((turn, turnIndex) => ({ turnIndex,
       timestamp: turn.timestamp ?? turn.startMs ?? null, speaker: turn.speaker, text: turn.text })),
     checklist: {

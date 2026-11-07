@@ -14,6 +14,8 @@ export function createHttpAiClient(config, fetchImplementation = fetch) {
         });
         if (!response.ok) {
           await response.body?.cancel();
+          if (response.status === 504) throw new ApiError(504, 'AI_TIMEOUT', 'AI service timed out');
+          if (response.status === 503) throw new ApiError(503, 'AI_UNAVAILABLE', 'AI service is unavailable');
           throw new ApiError(502, 'AI_HTTP_ERROR', 'AI service request failed');
         }
         if (Number(response.headers.get('content-length')) > config.AI_MAX_RESPONSE_BYTES) {
