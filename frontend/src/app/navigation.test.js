@@ -47,7 +47,7 @@ it('показывает ошибку API и повторяет загрузку
   vi.stubGlobal('fetch', vi.fn()
     .mockResolvedValueOnce(json({ error: { message: 'Сервис недоступен' } }, 503))
     .mockResolvedValueOnce(json({ data: [], pagination: { totalPages: 0 } })))
-  await openApp('/appeals')
+  await openApp('/appeals?source=server')
   await vi.waitFor(() => expect(wrapper.find('[role="alert"]').exists()).toBe(true))
   await wrapper.get('button').trigger('click')
   await vi.waitFor(() => expect(wrapper.text()).toContain('Апелляций пока нет.'))

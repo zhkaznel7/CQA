@@ -1,6 +1,10 @@
 export const routes = [
   { path: '/', redirect: { name: 'conversations' } },
   {
+    path: '/demo/appeals/:id', name: 'appeal-demo-detail', props: true,
+    component: () => import('../features/appeals/DemoAppealPage.vue'),
+  },
+  {
     path: '/checklists/new', name: 'checklist-new',
     component: () => import('../features/checklists/ChecklistPage.vue'),
   },
