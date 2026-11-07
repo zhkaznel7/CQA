@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:net';
 import test from 'node:test';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { createApp } from '../src/app.js';
 import { prisma } from '../src/database/client.js';
 import { env } from '../src/config/env.js';
@@ -55,6 +58,10 @@ test('Conversations and Checklists HTTP API with isolated PostgreSQL', async (t)
         assert.equal(response.body.status, 'ok');
         assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
         assert.equal(response.headers.has('x-powered-by'), false);
+        assert.equal((await request('/api/health', { headers: { Origin: 'https://untrusted.invalid' } })).status, 403);
+        assert.equal((await request('/api/conversations/import', { method: 'POST', body: { text: 'x'.repeat(110000) } })).status, 413);
+        const invalidJson = await fetch(base + '/api/checklists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' });
+        assert.equal(invalidJson.status, 400);
       });
 
       await t.test('valid import and repeated import are idempotent', async () => {
@@ -284,5 +291,30 @@ test('database errors map to safe HTTP responses', async () => {
     assert.deepEqual(await response.json(), { error: { code: 'DATABASE_UNAVAILABLE', message: 'Database is unavailable' } });
   } finally {
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('a refused PostgreSQL connection returns HTTP 503 without connection details', async () => {
+  const probe = createServer();
+  probe.listen(0, '127.0.0.1');
+  await once(probe, 'listening');
+  const port = probe.address().port;
+  await new Promise((resolve) => probe.close(resolve));
+  const database = new PrismaClient({ adapter: new PrismaPg({
+    connectionString: `postgresql://synthetic_user:synthetic_password@127.0.0.1:${port}/cqa_test`,
+    connectionTimeoutMillis: 1000,
+  }) });
+  const server = createApp({ database }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/conversations/${randomUUID()}`);
+    assert.equal(response.status, 503);
+    const body = await response.json();
+    assert.equal(body.error.code, 'DATABASE_UNAVAILABLE');
+    assert.equal(JSON.stringify(body).includes('synthetic_password'), false);
+    assert.equal(JSON.stringify(body).includes('127.0.0.1'), false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await database.$disconnect();
   }
 });

@@ -18,6 +18,7 @@
     "db:check": "node --env-file-if-exists=.env scripts/check-db.js",
     "test:db": "node --env-file-if-exists=.env --test --test-concurrency=1 tests/database.test.js",
     "test:api": "node --env-file-if-exists=.env --test --test-concurrency=1 tests/api.test.js",
+    "test:scoring": "node --test tests/scoring.test.js",
     "test": "node --env-file-if-exists=.env --test --test-concurrency=1 tests/*.test.js",
     "db:seed:official": "node --env-file-if-exists=.env scripts/seed-official-checklist.js"
   },

@@ -1,9 +1,32 @@
-# CQA Backend — этап 3
+# CQA Backend — этап 4
 
 Express + PostgreSQL + Prisma, JavaScript ES Modules. Требуется Node.js >= 22.13.0;
 Docker использует Node.js 24 LTS. Prisma Client, CLI и PostgreSQL adapter — 7.10.1.
-Реализованы Conversations API и Checklists API. AI, Frontend, scoring,
-evaluations API и appeals API не реализованы.
+Реализованы Conversations API, Checklists API и независимый Scoring Engine.
+AI, Frontend, evaluations API и appeals API не реализованы.
+
+## Scoring Engine
+
+Чистая синхронная функция `calculateScore(checklistVersion, answers)` находится в
+`src/modules/scoring/scoring.service.js`. Она принимает версию чек-листа из API или
+Prisma-запись с criteria, проверяет полные ответы и возвращает total из 100, вклад каждого
+критерия, перераспределённые максимумы, секции и grossError. Сетевых запросов и записи в БД нет.
+Контракт, пример, ограничения N/A и округления: [docs/scoring.md](docs/scoring.md).
+
+Unit-тесты работают без `.env`, PostgreSQL, Docker и AI:
+
+```powershell
+Set-Location C:\Users\zhanel\CQA\backend
+npm.cmd run test:scoring
+```
+
+Контрольные результаты: 100, 0, 88.13 и 100. Флаг грубой ошибки не меняет total.
+Проверено: 25 scoring unit-тестов и полный набор из 48 тестов на отдельной новой
+базе cqa_stage4_test (PostgreSQL 18.6); все прошли.
+Неполные ответы, неизвестные критерии, запрещённый N/A и недопустимые ступени — ошибки.
+Разрешение N/A в существующей конфигурации называется `allowNa`.
+Для N/A нужны `naConditionMet=true` и непустой `naReason`; интерпретация текста диалога
+не относится к математическому движку. Миграции и сохранённые оценки не изменены.
 
 ## Conversations и Checklists
 
@@ -77,7 +100,9 @@ Remove-Item Env:DATABASE_URL
 HTTP- и DB-тесты используют синтетические данные и откатывают транзакции. Проверки
 внешнего API выполняются через mock fetch, без реального API и реальных клиентов.
 Проверено локально на изолированном PostgreSQL 18.6: свежие миграции, повторный seed,
-22 теста (включая регрессию этапа 2). Docker runtime в этом окружении недоступен.
+23 API/DB-теста (включая регрессию этапа 2 и реальный отказ соединения БД).
+Scoring проверяется отдельно через `test:scoring` и также входит в `npm test`.
+Docker runtime в этом окружении недоступен.
 
 ## Docker Desktop / PowerShell
 
