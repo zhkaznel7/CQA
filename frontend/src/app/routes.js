@@ -1,6 +1,10 @@
 export const routes = [
   { path: '/', redirect: { name: 'conversations' } },
   {
+    path: '/demo/evaluation', name: 'evaluation-demo',
+    component: () => import('../features/evaluations/DemoEvaluationPage.vue'),
+  },
+  {
     path: '/demo/audio', name: 'audio-demo',
     component: () => import('../features/audio-review/AudioDemoPage.vue'),
   },

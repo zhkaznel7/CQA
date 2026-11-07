@@ -31,6 +31,7 @@ it('открывает диалог по внутреннему ID и сохра
     .mockResolvedValueOnce(json({ data: { ...item, transcript: [
       { speaker: 'system', text: 'Начало' }, { speaker: 'operator', text: 'Здравствуйте' },
     ] } }))
+    .mockResolvedValueOnce(json({ data: [], pagination: { totalPages: 0 } }))
   vi.stubGlobal('fetch', request)
   await openApp('/')
   await vi.waitFor(() => expect(wrapper.text()).toContain('dev-01'))
@@ -38,7 +39,7 @@ it('открывает диалог по внутреннему ID и сохра
   await vi.waitFor(() => expect(wrapper.find('#turn-2').exists()).toBe(true))
   expect(wrapper.get('#turn-2').text()).toContain('Здравствуйте')
   expect(request.mock.calls.map(([url]) => url)).toEqual([
-    '/api/conversations?page=1', '/api/conversations/internal-1',
+    '/api/conversations?page=1', '/api/conversations/internal-1', '/api/checklists?page=1&pageSize=100',
   ])
 })
 
