@@ -279,6 +279,31 @@ test('each mandatory discovery condition needs its own reason and cited turn', a
   }
 });
 
+test('discovery IDs and exact labels are interchangeable only with evidence for each cited turn', () => {
+  const input = conversation('p1-ru-025', ['02']);
+  const result = row(input, '02', 9);
+  result.na_assessment.initial_information_sufficient = false;
+  result.checks = [check('known_details_considered', true, 4),
+    check('missing_details_clarified_before_answer', true, 9, 2)];
+  result.evidence.push({turnIndex:4, quote:input.transcript[4].text});
+  const expected = validateResults([result], input);
+  const first = 'Оператор учёл известные детали';
+  const second = 'Оператор уточнил недостающее до ответа';
+  result.checks[1].condition = second;
+  assert.deepEqual(validateResults([result], input), expected);
+  result.checks[0].condition = first;
+  assert.deepEqual(validateResults([result], input), expected);
+  for (const invalid of [second + '.', 'known_details_considered']) {
+    result.checks[1].condition = invalid;
+    assert.throws(() => validateResults([result], input), /отдельные checks/);
+  }
+  result.checks[1].condition = second;
+  result.evidence[1].quote = 'Цитата, которой нет в реплике.';
+  assert.throws(() => validateResults([result], input), /цитата не совпала/);
+  result.evidence.pop();
+  assert.throws(() => validateResults([result], input), /обоснования и доказательств/);
+});
+
 test('mandatory discovery checks follow the description even when the key is renamed', async () => {
   const input = conversation('p1-ru-025', ['02']);
   input.checklist.criteria[0] = {...input.checklist.criteria[0], key: 'custom-c2'};
@@ -715,8 +740,15 @@ test('critical requires every configured violation and cannot skip the paid-serv
   assert.equal(wire.answer, true);
   assert.match(wire.explanation, /Предложение платной услуги в обход компании — выявлено/);
   assert.ok(!wire.explanation.includes('paid_service_outside_company'));
-  result.violations[0].violation = result.violations[1].violation;
-  await assert.rejects(run(input, [result]), /каждого вида нарушения/);
+  result.violations[0].violation = 'Раскрытие конфиденциальной информации';
+  assert.deepEqual(await run(input, [result]), [wire]);
+  result.violations[1].violation = 'Предложение платной услуги в обход компании';
+  result.violations[2].violation = 'Оскорбление клиента';
+  assert.deepEqual(await run(input, [result]), [wire]);
+  for (const invalid of ['Раскрытие конфиденциальной информации.', 'paid_service_outside_company']) {
+    result.violations[0].violation = invalid;
+    await assert.rejects(run(input, [result]), /каждого вида нарушения/);
+  }
 });
 
 test('an edited flag is assessed by its current definition without inherited violations', async () => {

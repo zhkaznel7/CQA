@@ -160,12 +160,25 @@ function booleanAnswer(checks, reject, evidenceIndexes) {
   return [...groups.values()].every(Boolean);
 }
 
+// Resolve exact names within this criterion before checking completeness:
+// an ID and its label identify the same obligation and cannot count twice.
+function matchPolicyRows(rows, field, specs, labelField) {
+  if (rows.length !== specs.length) return null;
+  const byId = new Map();
+  for (const row of rows) {
+    const value = row?.[field];
+    const matches = specs.filter(spec => spec.id === value || spec[labelField] === value);
+    if (matches.length !== 1 || byId.has(matches[0].id)) return null;
+    byId.set(matches[0].id, row);
+  }
+  return byId;
+}
+
 function requiredChecks(checks, criterion, transcript, reject) {
   const policy = checkPolicy(criterion);
   if (!policy || !Array.isArray(checks) || !checks.length) return checks;
-  const byId = new Map(checks.map(check => [check?.condition, check]));
-  if (checks.length !== policy.checks.length || byId.size !== checks.length ||
-      policy.checks.some(spec => !byId.has(spec.id))) {
+  const byId = matchPolicyRows(checks, 'condition', policy.checks, 'condition');
+  if (!byId) {
     reject('нужны отдельные checks для обязательных условий: ' + policy.checks.map(spec => spec.id).join(', '));
   }
   // Stable IDs prevent merging or duplicating mandatory checks. Configured
@@ -184,8 +197,8 @@ function requiredChecks(checks, criterion, transcript, reject) {
 function requiredViolations(violations, criterion, reject) {
   const specs = checkPolicy(criterion)?.violations;
   if (!specs || !Array.isArray(violations) || !violations.length) return violations;
-  const byId = new Map(violations.map(item => [item?.violation, item]));
-  if (violations.length !== specs.length || byId.size !== violations.length || specs.some(spec => !byId.has(spec.id))) {
+  const byId = matchPolicyRows(violations, 'violation', specs, 'label');
+  if (!byId) {
     reject('нужна отдельная проверка каждого вида нарушения: ' + specs.map(spec => spec.id).join(', '));
   }
   return specs.map(spec => ({...byId.get(spec.id), violation: spec.label}));
