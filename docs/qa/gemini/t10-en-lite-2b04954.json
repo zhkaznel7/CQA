@@ -1,0 +1,24 @@
+{
+  "conversation_id": "T10-EN",
+  "checklist_version": 1,
+  "model": "gemini-3.5-flash-lite",
+  "results": [
+    {
+      "criterion_id": "01",
+      "answer": true,
+      "na": false,
+      "na_reason": null,
+      "explanation": "Оператор поздоровался на языке клиента в первом ответе — подтверждено. Оператор поздоровался в первой реплике. Оператор представился в первом ответе — подтверждено. Оператор назвал свое имя в первой реплике.",
+      "evidence": [
+        {
+          "turnIndex": 1,
+          "quote": "Hello! My name is Dana."
+        }
+      ],
+      "checked_range": {
+        "start": 0,
+        "end": 1
+      }
+    }
+  ]
+}
