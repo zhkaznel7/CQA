@@ -13,9 +13,11 @@ test('database integrity, checklist versions and appeal history', async (t) => {
     await assert.rejects(prisma.$transaction(async (db) => {
       async function rejected(action, pattern) {
         await db.$executeRawUnsafe('SAVEPOINT expected_rejection');
-        await assert.rejects(action, pattern);
-        await db.$executeRawUnsafe('ROLLBACK TO SAVEPOINT expected_rejection');
-        await db.$executeRawUnsafe('RELEASE SAVEPOINT expected_rejection');
+        try { await assert.rejects(action, pattern); }
+        finally {
+          await db.$executeRawUnsafe('ROLLBACK TO SAVEPOINT expected_rejection');
+          await db.$executeRawUnsafe('RELEASE SAVEPOINT expected_rejection');
+        }
       }
 
       const conversation = await db.conversation.create({ data: {
@@ -90,7 +92,8 @@ test('database integrity, checklist versions and appeal history', async (t) => {
           ...resultData, criterionId: version2.criteria[0].id,
         } }), /Foreign key constraint/i);
         await rejected(() => db.criterionResult.create({ data: { ...resultData, points: 11 } }), /exceed/i);
-        await rejected(() => db.criterionResult.create({ data: { ...resultData, isNa: true } }), /constraint/i);
+        await rejected(() => db.criterionResult.create({ data: { ...resultData, isNa: true } }),
+          (error) => error.meta?.driverAdapterError?.cause?.originalCode === '23514');
         for (const evidence of [[{ turnIndex: 2 }], [{ turnIndex: -1 }], [{ turnIndex: 0.5 }], [{}]]) {
           await rejected(() => db.criterionResult.create({ data: { ...resultData, evidence } }), /Evidence/i);
         }

@@ -11,6 +11,66 @@ Docker использует Node.js 24 LTS. Prisma Client, CLI и PostgreSQL ada
 Отсутствующее время и неизвестная роль дают 422 до вызова AI, без догадок и изменения
 данных PostgreSQL. Подробности и результаты 107 тестов: [docs/transcript-adaptation.md](docs/transcript-adaptation.md).
 
+## Подготовка тестовой базы в Windows PowerShell
+
+Полный набор тестов требует запущенного PostgreSQL и отдельной базы `cqa_test`.
+`npm.cmd test` сам базу не создаёт. Сообщение `Database cqa_test does not exist`
+означает, что сервер доступен, но тестовая база на этом адресе ещё не создана.
+
+Тесты загружают `.env` через `--env-file-if-exists=.env`. Значение `DATABASE_URL`
+текущего процесса PowerShell имеет приоритет над `.env`. Если DATABASE_URL отсутствует,
+используется существующая конфигурация `PGHOST`, `PGPORT`, `POSTGRES_*`.
+Не выводите полный URL с паролем в терминал или отчёты.
+
+Если эффективный `DATABASE_URL` уже указывает на `cqa_test`, выполните:
+
+```powershell
+Set-Location C:\Users\zhanel\CQA\backend
+npm.cmd run db:test:prepare
+if ($LASTEXITCODE -ne 0) { throw 'Не удалось подготовить тестовую базу' }
+npm.cmd test
+```
+
+`db:test:prepare` проверяет, что имя базы в URL — **строго `cqa_test`**.
+Команда подключается к служебной базе `postgres`, создаёт `cqa_test` только при её
+отсутствии и запускает `prisma migrate deploy` с проверенным URL тестовой базы.
+Нужны права подключения к `postgres` и CREATEDB для первого создания; пользователь
+должен иметь права на применение миграций в тестовой базе. При повторном запуске
+данные сохраняются, применяются только ещё не выполненные миграции. Сброса БД нет.
+Команда не изменяет `.env`, основную базу, пользователей или настройки сервера.
+
+Если `.env` указывает на основную базу, оставьте файл без изменений и задайте тестовый
+URL только для текущего PowerShell. В примере замените USER и URL_ENCODED_PASSWORD
+своими значениями, а адрес и порт — адресом своего PostgreSQL. Спецсимволы логина
+и пароля должны быть URL-encoded:
+
+```powershell
+Set-Location C:\Users\zhanel\CQA\backend
+$previousDatabaseUrl = $env:DATABASE_URL
+try {
+    $env:DATABASE_URL = 'postgresql://USER:URL_ENCODED_PASSWORD@127.0.0.1:5432/cqa_test'
+    npm.cmd run db:test:prepare
+    if ($LASTEXITCODE -ne 0) { throw 'Не удалось подготовить тестовую базу' }
+    npm.cmd test
+} finally {
+    if ($null -eq $previousDatabaseUrl) {
+        Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+    } else {
+        $env:DATABASE_URL = $previousDatabaseUrl
+    }
+}
+```
+
+Тесты сами создают необходимые фикстуры: официальный seed и запущенный AI для
+`npm.cmd test` не требуются. Большинство фикстур откатываются; конкурентные тесты
+апелляций сохраняют собственные синтетические записи в тестовой базе.
+
+Проверено на локальном PostgreSQL 18.6, `127.0.0.1:5432/cqa_test`: все семь миграций
+применены, полный набор **107/107 успешно, 0 ошибок, 0 пропущено**. Повторная
+подготовка базы сохраняет данные и сообщает об отсутствии ожидающих миграций.
+Проверка CHECK-ограничений использует SQLSTATE `23514`, поэтому не зависит от языка
+сообщений PostgreSQL, включая `Russian_Kazakhstan.1252`.
+
 ## Appeals API и пересмотр
 
 Контракт, история и ограничения: [docs/appeals.md](docs/appeals.md).
@@ -51,7 +111,7 @@ Invoke-RestMethod "$base/api/appeals/$($appeal.data.id)/decision" -Method Patch 
 
 ```powershell
 $env:DATABASE_URL = 'postgresql://USER:URL_ENCODED_PASSWORD@127.0.0.1:5432/cqa_test'
-npm.cmd run db:migrate
+npm.cmd run db:test:prepare
 npm.cmd run test:appeals
 npm.cmd test
 Remove-Item Env:DATABASE_URL
@@ -127,7 +187,7 @@ npm.cmd run test:ai
 
 ```powershell
 $env:DATABASE_URL = 'postgresql://USER:URL_ENCODED_PASSWORD@127.0.0.1:5432/cqa_test'
-npm.cmd run db:migrate
+npm.cmd run db:test:prepare
 npm.cmd test
 Remove-Item Env:DATABASE_URL
 ```
@@ -345,11 +405,13 @@ development-базе; Prisma может потребовать права на s
 Не заменяйте миграции командой `db push`: триггеры, CHECK и views описаны в SQL.
 
 Тесты проверяют уникальность, языки, связи версий, диапазоны баллов, N/A,
-индексы доказательств и историю апелляций. Все тестовые записи откатываются транзакцией.
-Используйте отдельную тестовую базу с применёнными миграциями:
+индексы доказательств и историю апелляций. Функциональные фикстуры откатываются
+транзакцией; конкурентные проверки оставляют свои синтетические записи в тестовой БД.
+Подготовка отдельной базы описана выше. Для проверки только ограничений БД:
 
 ```powershell
 $env:DATABASE_URL = 'postgresql://USER:URL_ENCODED_PASSWORD@127.0.0.1:5432/cqa_test'
+npm.cmd run db:test:prepare
 npm.cmd run test:db
 Remove-Item Env:DATABASE_URL
 ```

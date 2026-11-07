@@ -47,9 +47,11 @@ test('Conversations and Checklists HTTP API with isolated PostgreSQL', async (t)
       }
       async function databaseReject(action, pattern) {
         await tx.$executeRawUnsafe('SAVEPOINT expected_rejection');
-        await assert.rejects(action, pattern);
-        await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT expected_rejection');
-        await tx.$executeRawUnsafe('RELEASE SAVEPOINT expected_rejection');
+        try { await assert.rejects(action, pattern); }
+        finally {
+          await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT expected_rejection');
+          await tx.$executeRawUnsafe('RELEASE SAVEPOINT expected_rejection');
+        }
       }
 
       await t.test('health stays 200 and security headers stay enabled', async () => {
@@ -249,10 +251,10 @@ test('Conversations and Checklists HTTP API with isolated PostgreSQL', async (t)
         await databaseReject(() => tx.checklistCriterion.create({ data: {
           checklistId: v2.id, key: 'wrong-weight', name: 'Invalid', maxPoints: 1,
           config: { ...criterion.config, type: 'unknown' },
-        } }), /constraint/i);
+        } }), (error) => error.meta?.driverAdapterError?.cause?.originalCode === '23514');
         await databaseReject(() => tx.checklistCriterion.create({ data: {
           checklistId: v2.id, key: 'legacy-zero', name: 'Invalid legacy zero', maxPoints: 0,
-        } }), /constraint/i);
+        } }), (error) => error.meta?.driverAdapterError?.cause?.originalCode === '23514');
         // Force deferred triggers while inside the rollback fixture.
         await tx.$executeRawUnsafe('SAVEPOINT deferred_check');
         const parsed = createChecklistSchema.parse(body);

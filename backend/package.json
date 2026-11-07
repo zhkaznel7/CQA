@@ -13,6 +13,7 @@
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate deploy",
+    "db:test:prepare": "node --env-file-if-exists=.env scripts/prepare-test-db.js",
     "db:migrate:dev": "prisma migrate dev",
     "db:status": "prisma migrate status",
     "db:check": "node --env-file-if-exists=.env scripts/check-db.js",
