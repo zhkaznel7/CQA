@@ -91,18 +91,18 @@ onBeforeUnmount(() => controller.abort())
 </script>
 
 <template>
-  <section aria-label="Оценка диалога">
+  <section class="evaluation-panel" aria-label="Оценка диалога">
     <h2>Оценка диалога</h2>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="busy" role="status">{{ versions.length ? 'Получаем оценку…' : 'Загружаем чек-листы…' }}</p>
-    <template v-if="versions.length">
+    <div v-if="versions.length" class="evaluation-toolbar">
       <label>Версия чек-листа
         <select v-model="selected" :disabled="busy" @change="result = null; emit('result', null)">
           <option v-for="v in versions" :key="v.id" :value="v.id">{{ v.name }} · v{{ v.version }}</option>
         </select>
       </label>
       <button type="button" :disabled="busy" @click="evaluate">Оценить</button>
-    </template>
+    </div>
     <template v-else-if="!busy">
       <p v-if="!error">Нет доступных версий чек-листа.</p>
       <button type="button" @click="loadVersions">Обновить список</button>
@@ -112,7 +112,7 @@ onBeforeUnmount(() => controller.abort())
       <p v-if="result.evaluation.isMock">Оценка тестовой модели сервера</p>
       <p v-if="result.reused">Получена ранее сохранённая оценка.</p>
       <p v-if="result.reviewError" role="alert">Не удалось получить действующую оценку. {{ result.reviewError }} Нажмите «Оценить», чтобы повторить.</p>
-      <table>
+      <div class="score-table"><table>
         <caption>Сводка оценки</caption>
         <thead><tr><th scope="col">Показатель</th><th scope="col">Исходная оценка модели</th><th scope="col">Действующая оценка с учётом апелляций</th></tr></thead>
         <tbody>
@@ -123,8 +123,8 @@ onBeforeUnmount(() => controller.abort())
             <td>{{ s.current ? points.format(s.current.points) + ' / ' + points.format(s.current.maxPoints) : 'Нет данных' }}</td>
           </tr>
         </tbody>
-      </table>
-      <ol>
+      </table></div>
+      <ol class="criterion-results">
         <li v-for="row in rows" :key="row.criterionId">
           <strong>{{ row.criterionKey }} · {{ row.name }}</strong>
           <span v-if="row.score && row.score.type !== 'flag'"> · вес {{ row.score.weight }}</span>
@@ -133,11 +133,11 @@ onBeforeUnmount(() => controller.abort())
           <p v-if="row.current?.isNa && row.current.naReason">Действующая причина N/A: {{ row.current.naReason }}</p>
           <p>Обоснование модели: {{ row.explanation }}</p>
           <p v-if="row.isNa && row.naReason">Исходная причина N/A: {{ row.naReason }}</p>
-          <button v-for="(item, i) in row.evidence" :key="i" type="button"
+          <button class="evidence-link" v-for="(item, i) in row.evidence" :key="i" type="button"
             @click="emit('evidence', { start: item.turnIndex, end: item.turnIndex })">
             Реплика {{ item.turnIndex + 1 }} · «{{ item.quote }}»
           </button>
-          <button v-if="row.checkedRange" type="button" @click="emit('evidence', row.checkedRange)">
+          <button class="evidence-link" v-if="row.checkedRange" type="button" @click="emit('evidence', row.checkedRange)">
             Проверенный участок: {{ row.checkedRange.start + 1 }}–{{ row.checkedRange.end + 1 }}
           </button>
           <AppealRequest :key="result.evaluation.id + row.criterionId" :evaluation-id="result.evaluation.id" :criterion-id="row.criterionId" />
@@ -146,3 +146,32 @@ onBeforeUnmount(() => controller.abort())
     </article>
   </section>
 </template>
+
+<style scoped>
+.evaluation-panel { min-width:0; border:1px solid #dce3ec; border-radius:9px; padding:clamp(16px,2vw,22px); background:white; color:#263952 }
+.evaluation-panel h2 { margin:0 0 16px; font-size:19px; letter-spacing:-.02em }
+.evaluation-toolbar { display:flex; align-items:flex-end; flex-wrap:wrap; gap:10px }
+.evaluation-toolbar label { flex:1 1 230px; max-width:490px; display:grid; gap:6px; color:#485b74; font-size:13px; font-weight:600 }
+.evaluation-toolbar select { width:100%; min-width:0 }
+.evaluation-toolbar button { background:#1768d5; color:white; border-color:#1768d5 }
+.evaluation-panel [role=status] { display:flex; align-items:center; gap:8px; color:#536b87; font-size:13px }
+.evaluation-panel [role=status]::before { content:''; width:12px; height:12px; border:2px solid #cfdded; border-top-color:#2474d7; border-radius:50%; animation:eval-spin .7s linear infinite }
+@keyframes eval-spin { to {transform:rotate(360deg)} }
+.evaluation-panel article { border-top:1px solid #e2e8ef; margin-top:18px; padding-top:17px }
+.evaluation-panel h3 { margin:0 0 8px; font-size:16px }
+.score-table { margin:14px 0; overflow:auto }
+.score-table table { width:100%; border-collapse:collapse; font-size:13px; text-align:left; font-variant-numeric:tabular-nums }
+.score-table th,.score-table td { padding:9px 11px; border-bottom:1px solid #e3eaf2; text-align:left; overflow-wrap:anywhere }
+.score-table th { font-weight:600 }
+.score-table thead th { color:#5a6b81; background:#f3f6fa; font-size:12px }
+.score-table tbody tr:first-child { font-weight:700; color:#185ba5; background:#f6f9fe }
+.score-table caption { text-align:left; padding:0 0 8px; font-weight:600 }
+.criterion-results { list-style:none; padding:0; display:grid; gap:10px; margin:0 }
+.criterion-results > li { min-width:0; padding:15px; border-radius:7px; border:1px solid #dee5ee; overflow-wrap:anywhere }
+.criterion-results strong { color:#1e3552 }
+.criterion-results li > span { color:#63778c; font-size:12px }
+.criterion-results li > p { font-size:14px; line-height:1.5; margin:7px 0 }
+.evidence-link { display:block; text-align:left; white-space:normal; margin-top:6px; padding:7px 10px; color:#195da9; border:0; border-left:2px solid #a9c9f7; border-radius:0 4px 4px 0; background:#f2f7ff; font-size:13px }
+.evidence-link:hover { background:#e6effc }
+@media(prefers-reduced-motion:reduce){.evaluation-panel [role=status]::before{animation:none}}
+</style>

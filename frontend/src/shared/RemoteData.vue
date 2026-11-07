@@ -2,7 +2,10 @@
 import { ref, shallowRef, watch } from 'vue'
 import { getJson } from './api.js'
 
-const props = defineProps({ path: { type: String, required: true } })
+const props = defineProps({
+  path: { type: String, required: true },
+  load: { type: Function, default: getJson },
+})
 const payload = shallowRef(null)
 const error = ref('')
 const attempt = ref(0)
@@ -13,7 +16,7 @@ watch([() => props.path, attempt], async ([path], _, onCleanup) => {
   payload.value = null
   error.value = ''
   try {
-    const result = await getJson(path, controller.signal)
+    const result = await props.load(path, controller.signal)
     if (!controller.signal.aborted) payload.value = result
   } catch (cause) {
     if (!controller.signal.aborted) {

@@ -17,6 +17,8 @@ function json(body, status = 200) {
 }
 
 async function openApp(path) {
+  const request = globalThis.fetch
+  vi.stubGlobal('fetch', (url, opts) => url === '/api/health' ? Promise.resolve(json({ status: 'ok' })) : request(url, opts))
   const router = createRouter({ history: createMemoryHistory(), routes })
   await router.push(path)
   await router.isReady()
@@ -33,7 +35,7 @@ it('открывает диалог по внутреннему ID и сохра
     ] } }))
     .mockResolvedValueOnce(json({ data: [], pagination: { totalPages: 0 } }))
   vi.stubGlobal('fetch', request)
-  await openApp('/')
+  await openApp('/dialogs')
   await vi.waitFor(() => expect(wrapper.text()).toContain('dev-01'))
   await wrapper.get('a[href$="/dialogs/internal-1"]').trigger('click')
   await vi.waitFor(() => expect(wrapper.find('#turn-2').exists()).toBe(true))
@@ -49,6 +51,6 @@ it('показывает ошибку API и повторяет загрузку
     .mockResolvedValueOnce(json({ data: [], pagination: { totalPages: 0 } })))
   await openApp('/appeals')
   await vi.waitFor(() => expect(wrapper.find('[role="alert"]').exists()).toBe(true))
-  await wrapper.get('button').trigger('click')
+  await wrapper.findAll('button').find(b => b.text() === 'Повторить').trigger('click')
   await vi.waitFor(() => expect(wrapper.text()).toContain('Апелляций пока нет.'))
 })

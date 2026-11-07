@@ -1,5 +1,5 @@
 export const routes = [
-  { path: '/', redirect: { name: 'conversations' } },
+  { path: '/', alias: '/overview', name: 'overview', component: () => import('../features/overview/OverviewPage.vue') },
   {
     path: '/checklists/new', name: 'checklist-new',
     component: () => import('../features/checklists/ChecklistPage.vue'),

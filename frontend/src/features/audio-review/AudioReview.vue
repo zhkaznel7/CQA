@@ -56,3 +56,13 @@ const findings = computed(() => props.recording.findings.filter(overlaps))
     </template>
   </section>
 </template>
+
+<style scoped>
+.audio-review { min-width:0 }
+.audio-review > h2 { font-size:15px; color:#29405b; border-top:1px solid #e3eaf2; margin:16px 0 7px; padding-top:14px }
+.audio-review > p { margin:10px 0; font-size:13px; color:#60758b; line-height:1.5 }
+.audio-excerpt,.audio-findings { list-style:none; padding:0; margin:0; display:grid; gap:7px }
+.audio-excerpt li,.audio-findings li { padding:9px 12px; background:#f4f8fd; border-left:2px solid #7dafdf; color:#31465e; font-size:14px; line-height:1.5; overflow-wrap:anywhere }
+.audio-excerpt small { display:inline-block; color:#60768c }
+.audio-findings button { display:block; margin-top:6px }
+</style>

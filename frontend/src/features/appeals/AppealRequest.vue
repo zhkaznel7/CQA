@@ -27,11 +27,20 @@ async function submit() {
 
 <template>
   <RouterLink v-if="createdId" :to="{ name: 'appeal', params: { id: createdId } }">Открыть обращение</RouterLink>
-  <button v-else-if="!open" type="button" @click="open = true">Оспорить</button>
-  <form v-else @submit.prevent="submit">
+  <button class="appeal-trigger" v-else-if="!open" type="button" @click="open = true">Оспорить</button>
+  <form class="appeal-request" v-else @submit.prevent="submit">
     <label>Комментарий к оценке <textarea v-model="comment" required maxlength="4000"></textarea></label>
     <button type="submit" :disabled="busy">Подать апелляцию</button>
     <button type="button" :disabled="busy" @click="open = false">Отмена</button>
     <p v-if="error" role="alert">{{ error }}</p>
   </form>
 </template>
+
+<style scoped>
+.appeal-trigger { display:block; margin-top:12px; color:#315e97; background:#fff; border-color:#cad9ec; font-size:13px }
+.appeal-request { margin-top:12px; padding:13px; border:1px solid #dce6f4; background:#f6f9fd; border-radius:6px }
+.appeal-request label { display:grid; gap:6px; color:#40536b; font-size:13px; font-weight:600 }
+.appeal-request textarea { width:100%; box-sizing:border-box }
+.appeal-request button { margin:8px 6px 0 0 }
+.appeal-request button[type=submit] { background:#1768d5; color:white; border-color:#1768d5 }
+</style>

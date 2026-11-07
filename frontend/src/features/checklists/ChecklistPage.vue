@@ -59,11 +59,18 @@ onBeforeUnmount(() => saveController?.abort())
 </script>
 
 <template>
-  <RouterLink :to="{ name: 'checklists' }">К списку чек-листов</RouterLink>
-  <h1>Редактор чек-листа</h1>
+  <RouterLink class="editor-back" :to="{ name: 'checklists' }">К списку чек-листов</RouterLink>
+  <h1 class="editor-heading">{{ id ? 'Редактор чек-листа' : 'Создание чек-листа' }}</h1>
   <p v-if="error" role="alert">{{ error }}</p>
   <p v-if="message" role="status">{{ message }}</p>
   <ChecklistEditor v-if="source" :key="source.id ?? 'new'" :source="source" :saving="saving" @save="save" />
   <button v-else-if="error" type="button" @click="attempt++">Повторить загрузку</button>
   <p v-else>Загрузка…</p>
 </template>
+
+<style scoped>
+.editor-back { display:inline-flex; align-items:center; gap:7px; color:#48647f; font-size:13px; text-decoration:none }
+.editor-back::before { content:'←' }
+.editor-back:hover { color:#1768d5 }
+.editor-heading { margin:14px 0 18px; letter-spacing:-.035em; font-size:clamp(25px,3vw,33px) }
+</style>

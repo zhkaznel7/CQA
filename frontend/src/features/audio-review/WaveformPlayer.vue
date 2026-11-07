@@ -39,10 +39,11 @@ function syncRegion(region) {
 onMounted(() => {
   player = WaveSurfer.create({
     container: container.value, height: 80, interact: false,
-    waveColor: '#838383', progressColor: '#353535',
+    waveColor: '#78a6df', progressColor: '#1b62be', cursorColor: '#163f75',
+    barWidth: 2, barGap: 1, barRadius: 1,
   })
   const regions = player.registerPlugin(RegionsPlugin.create())
-  const options = { color: 'rgba(50, 105, 210, 0.22)', minLength: 0.05 }
+  const options = { color: 'rgba(52, 123, 223, 0.21)', minLength: 0.05 }
   regions.on('region-created', region => {
     if (activeRegion !== region) activeRegion?.remove()
     activeRegion = region
@@ -90,11 +91,11 @@ onBeforeUnmount(() => { player?.destroy() })
 </script>
 
 <template>
-  <p>Протяните по волне для выбора фрагмента. Края выделения можно двигать, а границы — вводить в секундах.</p>
-  <div ref="container" class="waveform"></div>
+  <p class="wave-instructions">Протяните по волне для выбора фрагмента. Края выделения можно двигать, а границы — вводить в секундах.</p>
+  <div ref="container" class="waveform" :class="{ loading: !duration }"></div>
   <p v-if="error" role="alert">{{ error }}</p>
   <p v-else-if="!duration" role="status">Загрузка записи…</p>
-  <fieldset :disabled="!duration">
+  <fieldset class="wave-controls" :disabled="!duration">
     <legend>Фрагмент записи<span v-if="duration"> · всего {{ duration.toFixed(2) }} с</span></legend>
     <label>Начало, с
       <input type="number" min="0" :max="selection.end" step="0.001"
@@ -104,7 +105,23 @@ onBeforeUnmount(() => { player?.destroy() })
       <input type="number" :min="selection.start" :max="duration" step="0.001"
         :value="selection.end.toFixed(3)" @change="editBoundary($event, 'end')">
     </label>
-    <button type="button" @click="playSelection">{{ playing ? 'Пауза' : 'Прослушать выделение' }}</button>
+    <button type="button" class="play-clip" :aria-pressed="playing" @click="playSelection">{{ playing ? 'Пауза' : 'Прослушать выделение' }}</button>
     <button type="button" @click="select(0, duration)">Вся запись</button>
   </fieldset>
 </template>
+
+<style scoped>
+.wave-instructions { margin:0 0 10px; color:#53687e; line-height:1.5; font-size:13px }
+.waveform { min-height:80px; border:1px solid #ccdff5; border-radius:6px; overflow:hidden; background-color:#f4f8fe; background-image:repeating-linear-gradient(90deg,transparent 0,transparent calc(10% - 1px),#dce6f3 10%); cursor:crosshair }
+.waveform::part(region) { border-inline:1px solid #3785df }
+.waveform::part(region-handle) { border-color:#1768d5 }
+.waveform.loading { animation:load-audio 1.45s ease-in-out infinite alternate }
+@keyframes load-audio { from { opacity:.55 } to { opacity:1 } }
+.wave-controls { min-width:0; display:flex; flex-wrap:wrap; align-items:flex-end; gap:9px 12px; padding:0; margin:12px 0 0; border:0 }
+.wave-controls legend { margin-bottom:8px; font-weight:600; color:#334c67; font-size:13px }
+.wave-controls label { display:grid; gap:4px; color:#54687e; font-size:12px }
+.wave-controls input { width:100px; max-width:100%; font:inherit; font-variant-numeric:tabular-nums }
+.play-clip { background:#1768d5; color:white; border-color:#1768d5 }
+.play-clip[aria-pressed=true] { background:#124c99 }
+@media(prefers-reduced-motion:reduce){.waveform.loading{animation:none}}
+</style>
