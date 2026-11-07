@@ -54,10 +54,14 @@ function resultSchema(criteria, length) {
   const evidence = {type: 'array', minItems: 1, items: object({
     turnIndex: index, quote: {type: 'string', description: 'Дословная непрерывная подстрока исходной реплики.'}
   })};
-  const branches = criteria.map(c => object({
-    criterion_id: {type: 'string', enum: [c.key]},
+  // Keep one shallow item schema. Per-criterion constraints remain enforced
+  // by validateResults; duplicating this object for every key bloats the
+  // provider schema and can exceed structured-output complexity limits.
+  const scaleValues = [...new Set(criteria.flatMap(c => c.type === 'scale' ? c.scaleSteps.map(s => s.value) : []))];
+  const row = object({
+    criterion_id: {type: 'string', enum: criteria.map(c => c.key)},
     applicability: object({
-      met: c.allowNa ? {type: 'boolean'} : {type: 'boolean', enum: [false]},
+      met: {type: 'boolean'},
       reason: {type: 'string'}
     }),
     checks: {type: 'array', items: object({
@@ -65,13 +69,13 @@ function resultSchema(criteria, length) {
       met: {type: 'boolean'}, reason: {type: 'string'}, turnIndexes: indexes
     })},
     levels: {type: 'array', items: object({
-      value: c.type === 'scale' ? {type: 'number', enum: c.scaleSteps.map(s => s.value)} : {type: 'number'},
+      value: scaleValues.length ? {type: 'number', enum: scaleValues} : {type: 'number'},
       met: {type: 'boolean'}, reason: {type: 'string'}
     })},
     explanation: {type: 'string'}, evidence,
     checked_range: {...object({start: index, end: index}), type: ['object', 'null']},
     omission: {type: 'boolean'}, limitations: {type: 'array', items: {type: 'string'}}
-  }));
+  });
   return object({
     review: object({
       requests: {type: 'array', items: object({
@@ -81,7 +85,7 @@ function resultSchema(criteria, length) {
       issues: {type: 'array', items: object({turnIndexes: indexes, description: {type: 'string'}})}
     }),
     results: {type: 'array', minItems: criteria.length, maxItems: criteria.length,
-      items: branches.length === 1 ? branches[0] : {anyOf: branches}}
+      items: row}
   });
 }
 
@@ -183,6 +187,20 @@ function diagnostic(options, event, started, fields = {}) {
   catch { /* Logging is best effort. */ }
 }
 
+function requestRejection(payload) {
+  // Only return known technical classifications, never the raw message/body.
+  try {
+    const error = JSON.parse(payload).error;
+    const reasons = error?.details?.map(d => d?.reason) ?? [];
+    if (reasons.includes('API_KEY_INVALID')) return 'API_KEY_INVALID';
+    const message = typeof error?.message === 'string' ? error.message : '';
+    if (/schema/i.test(message) && /too many states|complex|nesting depth/i.test(message)) return 'SCHEMA_COMPLEXITY';
+    if (/schema|responseJsonSchema|response_schema/i.test(message)) return 'INVALID_SCHEMA';
+    if (error?.status === 'INVALID_ARGUMENT') return 'INVALID_ARGUMENT';
+  } catch { /* A structured provider error is not guaranteed. */ }
+  return 'REQUEST_REJECTED';
+}
+
 async function generate(body, options, timeoutMs) {
   const {key, model, request = fetch} = options;
   const started = performance.now();
@@ -229,7 +247,11 @@ async function generate(body, options, timeoutMs) {
     fail(502, 'GEMINI_REQUEST_REJECTED', 'Google отклонил доступ (HTTP ' + response.status +
       (reason ? ', ' + reason : '') + '). Проверьте активный ключ и доступ проекта к Gemini API.');
   }
-  if (!response.ok) fail(502, 'GEMINI_REQUEST_REJECTED', 'Gemini отклонил запрос (HTTP ' + response.status + '). Проверьте ключ и GEMINI_MODEL.');
+  if (!response.ok) {
+    const reason = requestRejection(payload);
+    diagnostic(options, 'provider_rejected', started, {http_status: response.status, reason});
+    fail(502, 'GEMINI_REQUEST_REJECTED', 'Gemini отклонил запрос (HTTP ' + response.status + ', ' + reason + ').');
+  }
   return payload;
 }
 

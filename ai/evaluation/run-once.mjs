@@ -19,7 +19,7 @@ async function saveJson(file, data) {
   await writeFile(temporary, JSON.stringify(data, null, 2) + String.fromCharCode(10), {mode: 0o600});
   await rename(temporary, file);
 }
-function planInput() {
+export function planInput() {
   const labelFile = path.join(here, 'dev-12.manual.v1.json');
   const labels = JSON.parse(readFileSync(labelFile, 'utf8'));
   const rawSource = readFileSync(path.join(here, '../../data/dev.json'));
@@ -43,7 +43,7 @@ function planInput() {
 }
 
 // No retries. The durable attempt marker is created BEFORE entering the provider.
-export async function runBatch({inputs, outputDir, identity, evaluate, log = console.log}) {
+export async function runBatch({inputs, outputDir, identity, evaluate, log = console.log, stopOnRequestRejected = false}) {
   await mkdir(outputDir, {recursive: true});
   const lock = path.join(outputDir, '.lock');
   try { await mkdir(lock); }
@@ -108,6 +108,10 @@ export async function runBatch({inputs, outputDir, identity, evaluate, log = con
       }
       await saveJson(resultFile, response);
       log('Сохранён: ' + cid + (response.error ? ' (' + response.error.code + ')' : ''));
+      if (stopOnRequestRejected && response.error?.code === 'GEMINI_REQUEST_REJECTED') {
+        log('Сбор остановлен после отклонения запроса Google; остальные чаты не отправлены.');
+        break;
+      }
     }
     return summary;
   } finally { await rm(lock, {recursive: true}); }

@@ -199,3 +199,35 @@ test('timeout location distinguishes no headers from a stalled body; neither is 
     assert.ok(!JSON.stringify(events).includes('secret payload'));
   }
 });
+
+test('provider schema is compact while per-criterion validation stays strict', async () => {
+  const input = conversation('p1-ru-025', ['01','02','03','04','05','06','07','08']);
+  let schema;
+  await assert.rejects(evaluateGemini(input, {key:'test',model:'test',request:async (_url,init)=>{
+    schema = JSON.parse(init.body).generationConfig.responseJsonSchema;
+    return Response.json({error:{status:'INVALID_ARGUMENT',message:'Schema has too many states; secret-test-key'}},{status:400});
+  }}), {code:'GEMINI_REQUEST_REJECTED',message:/HTTP 400, SCHEMA_COMPLEXITY/});
+  const item = schema.properties.results.items;
+  assert.ok(!item.anyOf);
+  assert.deepEqual(item.properties.criterion_id.enum,input.checklist.criteria.map(c=>c.key));
+  assert.ok(JSON.stringify(schema).length < 5000);
+  const result = row(input,'06',9);
+  result.levels = [{value:20,met:true,reason:'Wrong scale'}];
+  assert.throws(()=>validateResults([result],{...input,checklist:{...input.checklist,criteria:[input.checklist.criteria.find(c=>c.key==='06')]}}),/ступени/);
+});
+
+test('400 diagnostics classify schema and key errors without leaking provider text', async () => {
+  const input = conversation('p1-ru-025',['04']);
+  for (const [error, reason] of [
+    [{status:'INVALID_ARGUMENT',message:'responseJsonSchema is not supported: secret'}, 'INVALID_SCHEMA'],
+    [{status:'INVALID_ARGUMENT',message:'unknown argument secret'}, 'INVALID_ARGUMENT'],
+    [{details:[{reason:'API_KEY_INVALID'}],message:'secret'}, 'API_KEY_INVALID']
+  ]) {
+    const events=[];
+    await assert.rejects(evaluateGemini(input,{key:'secret',model:'test',onEvent:e=>events.push(e),
+      request:async ()=>Response.json({error},{status:400})}),
+      e=>e.code==='GEMINI_REQUEST_REJECTED' && e.message.includes(reason) && !e.message.includes('secret'));
+    assert.equal(events.find(e=>e.event==='provider_rejected').reason,reason);
+    assert.ok(!JSON.stringify(events).includes('secret'));
+  }
+});
