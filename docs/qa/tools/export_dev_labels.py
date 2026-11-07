@@ -9,15 +9,16 @@ from pathlib import Path
 CALIBRATION = Path(__file__).resolve().parents[1] / "calibration.md"
 DEV_SHA256 = "7311f19010932804b1fd3391d50a311dd8699a04e8441e756ae94a8b51c0b455"
 RUBRIC_SHA256 = "32fb8a23cf32229c689edb3147eb434e252a01ec357d81406400905f405f0cfa"
-# Six pairs excluded in the pre-pilot decision recorded in calibration.md.
+# Current exclusions and QA/AI decisions are recorded in calibration.md.
 EXCLUDED = {
     ("p1-ru-008", "06"): "Как трактовать переспрос клиента?",
     ("p4-ru-003", "07"): "Была ли возможность завершить звонок?",
     ("p1-kz-008", "07"): "Установлена ли возможность ответить после благодарности клиента?",
     ("p1-kz-015", "04"): "Достаточно ли обещания передать вопрос на проверку?",
-    ("p1-en-008", "04"): "Закрыт ли вопрос об уже открытой позиции?",
-    ("p1-en-015", "05"): "Достаточно ли исправления инструкции для реакции на неудобство?",
 }
+
+TEAM_REVIEWED = {("p1-kz-008", "02"), ("p1-kz-008", "05"),
+                 ("p1-en-008", "04"), ("p1-en-015", "05")}
 
 
 def canonical_hash(value):
@@ -94,7 +95,7 @@ def build_export(source_bytes, rubric, markdown):
                 "na_reason": explanation if value is None else None, "explanation": explanation,
                 "reference_ranges": spans,
                 "checked_range": checked_range,
-                "review": {"status": "pending", "disputed": bool(question), "question": question},
+                "review": {"status": "approved" if (cid, key) in TEAM_REVIEWED else "pending", "disputed": bool(question), "question": question},
             })
         if [r["criterion_id"] for r in results] != list(criteria):
             raise ValueError(f"Неполный, повторный или переставленный критерий: {cid}")
@@ -123,6 +124,6 @@ if __name__ == "__main__":
         with args.output.open("x", encoding="utf-8") as target:
             json.dump(labels, target, ensure_ascii=False, indent=2)
             target.write("\n")
-        print("15 диалогов, 120 меток, 6 отложенных пар.")
+        print(f"15 диалогов, 120 меток, отложено пар: {len(EXCLUDED)}.")
     except (ValueError, OSError, KeyError) as error:
         parser.exit(1, f"{error}\n")
