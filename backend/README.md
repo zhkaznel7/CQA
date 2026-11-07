@@ -1,4 +1,83 @@
-# CQA Backend — этап 6
+# CQA Backend
+
+Полный контракт для Frontend: **[docs/api.md](docs/api.md)**. Документ сверяется с
+реализованными Express routes, Zod schemas и serializers; содержит обязательные поля,
+полные синтетические JSON-ответы, ошибки каждого маршрута и готовые функции fetch().
+
+## Подключение Frontend
+
+Base URL: **http://127.0.0.1:3000**. Для REST используйте префикс `/api`.
+Браузер обращается только к Backend: AI вызывается сервером, итоговые баллы считает
+Backend. Авторизация для демонстрации не требуется.
+
+| Метод | Маршрут | Назначение |
+| --- | --- | --- |
+| GET | /api/health | Доступность HTTP-приложения |
+| GET | /api/conversations | Список: page, pageSize, language, channel |
+| GET | /api/conversations/:id | Диалог с транскриптом |
+| POST | /api/conversations/import | Импорт настроенного источника; тело {} |
+| GET | /api/checklists | Версии: page, pageSize, key |
+| GET | /api/checklists/:id | Версия с критериями |
+| POST | /api/checklists | Новое семейство, версия 1 |
+| PUT | /api/checklists/:id | Новая версия от последней версии |
+| POST | /api/evaluations | Синхронная AI-оценка по conversationId + checklistId |
+| GET | /api/evaluations/:id | Исходная оценка и доказательства |
+| POST | /api/appeals | Апелляция по evaluationId + criterionId + comment |
+| GET | /api/appeals | Список: page, pageSize, status |
+| GET | /api/appeals/:id | Исходная оценка, контекст и текущий finalScore |
+| PATCH | /api/appeals/:id/decision | CONFIRM/CHANGE и обязательная reason |
+
+Обычный ответ — `{data: ...}`; списки дополнительно содержат `pagination`;
+ошибка — `{error: {code, message, details?}}`. Health возвращает `{status, service}`.
+Все ID маршрутов — внутренние UUID; исходный ID организаторов находится в externalId.
+По умолчанию page=1, pageSize=20 (максимум 100); channel фильтруется точным совпадением.
+
+Порядок работы UI:
+
+1. Получить список диалогов; при необходимости запустить импорт и обновить список.
+2. Загрузить транскрипт диалога и конкретную версию чек-листа с критериями.
+3. Передать только `{conversationId, checklistId}` в POST evaluations и дождаться
+   ответа: 201 для новой оценки, 200/reused=true для повторной пары. Сохранить ID
+   результата для последующего GET. Списка evaluations и task/polling API сейчас нет.
+4. Показать `score.total`, `score.grossError`, результаты критериев и доказательства.
+   Индексы evidence.turnIndex и checkedRange включительные, от 0 по полному транскрипту.
+   В raw aiResponse используется имя checked_range; в публичных results — checkedRange.
+5. Для оспаривания взять `results[].criterionId`, затем открыть созданную карточку.
+   Итог после решений читать из `appeal.finalScore`: GET evaluation сохраняет оригинал.
+6. Редактор отправляет полную конфигурацию в PUT без key и полей чтения. Получает
+   новый UUID/version; прежние критерии и оценки остаются доступными.
+
+N/A отображается отдельно от false/0: `isNa=true`, `answer=null`, обязательная причина.
+`allowNa` не заменяет независимое подтверждение условия. Для приветствия исключение
+в соответствующей версии допускает только подтверждённое отсутствующее начало звонка;
+обычный звонок и текстовые каналы исключения не получают. Frontend не пересчитывает
+баллы и не создаёт подтверждения через HTTP. `total=null` не следует отображать как 0.
+
+Разрешите **точный Origin Frontend** в CORS_ORIGINS: `http://127.0.0.1:5173` и
+`http://localhost:5173` — разные origins. По умолчанию разрешён localhost:5173.
+Для демо cookies/credentials:include не нужны. Секреты окружения Frontend не передаются.
+
+Запуск существующего Docker-стека из корня после настройки `backend/.env`:
+
+```powershell
+Set-Location C:\Users\zhanel\CQA
+docker compose --env-file backend/.env -f backend/compose.yaml build ai
+docker compose --env-file backend/.env -f backend/compose.yaml build backend
+docker compose --env-file backend/.env -f backend/compose.yaml up -d --wait --wait-timeout 180
+Invoke-RestMethod 'http://127.0.0.1:3000/api/health'
+```
+
+Подготовка `.env`, seed v1/v2 и сохранение PostgreSQL volume описаны в
+[разделе Docker](#docker-desktop--powershell) и [API-инструкции](docs/api.md#запуск-через-docker-windows-powershell).
+Compose запускает командный mock, не Gemini. База не публикует порт наружу.
+
+Проверка документации: все 14 маршрутов проверены 27 HTTP-запросами; 19 JavaScript-блоков
+из docs/api.md извлечены и скомпилированы вместе, функции API и полный сценарий выполнены
+ещё 26 HTTP-запросами на отдельной PostgreSQL с локальным mock. В учебном сценарии
+исходный итог 0, пересмотренный 60, новая версия 2, исходная оценка сохранена.
+Все записи этих проверок откатились. Это проверка примеров, не новый полный аудит;
+Docker-команды в этой задаче не запускались. Остальные результаты ниже относятся к
+соответствующим историческим проверкам.
 
 Технический аудит: [docs/technical-audit.md](docs/technical-audit.md).
 Экспорт JSON 1.0 по официальному приложению: [docs/results-export.md](docs/results-export.md).
@@ -10,7 +89,8 @@ Express + PostgreSQL + Prisma, JavaScript ES Modules. Требуется Node.js
 Docker использует Node.js 24 LTS. Prisma Client, CLI и PostgreSQL adapter — 7.10.1.
 Реализованы Conversations API, Checklists API, Scoring Engine, Evaluations API и Appeals API.
 Интеграция AI использует согласованный HTTP-контракт или явный локальный mock.
-Реальный AI-сервис пока не проверен. Frontend и AI-модель не реализованы.
+Эта документация описывает Backend; фактические поля ответов и функции интеграции
+с Frontend приведены в [API-контракте](docs/api.md).
 
 Адаптация перед AI HTTP-вызовом: строковое время сохраняется, числовое передаётся
 строкой без пересчёта единиц, известные роли нормализуются только по регистру/пробелам.
@@ -374,7 +454,7 @@ Volume `postgres_data` смонтирован в `/var/lib/postgresql` для Po
 Заданы также лимиты CPU и количества процессов; журналы Backend и AI ротируются.
 Это настройки для демонстрации на небольших данных; нагрузочная проверка не выполнялась.
 
-Frontend подключается к `http://localhost:3000/api`. По умолчанию CORS допускает
+Frontend подключается к `http://127.0.0.1:3000/api`. По умолчанию CORS допускает
 `http://localhost:5173` и `http://localhost:3000`. Если Frontend открыт на другом origin,
 задайте точное значение в CORS_ORIGINS и пересоздайте Backend через `docker compose up -d`.
 
