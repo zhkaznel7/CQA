@@ -24,7 +24,7 @@ function recording(channel) {
   input.transcript = fixtures[1].transcript.map((t, turnIndex) =>
     ({...t, turnIndex, timestamp: '2026-11-07T12:00:00Z'}));
   input.checklist.criteria = [{
-    key:'custom-greeting',allowNa:true, ...fixtures[1].criteria[0]
+    ...fixtures[1].criteria[0],key:'01',allowNa:true
   }];
   return input;
 }
@@ -74,4 +74,34 @@ test('dynamic keys, versions, scales, flag and unlabelled languages remain suppo
   const renamed = request();
   renamed.checklist.criteria[2].key = 'identity-renamed';
   assert.equal(evaluateMock(renamed)[2].na, true);
+});
+
+
+test('Backend v2 greeting condition and prior wording select the same voice exception', () => {
+  for (const naCondition of [fixtures[1].criteria[0].naCondition, ...fixtures[1].criteria[0].naConditionAliases]) {
+    const input = recording('voice call');
+    input.checklist.version = 2;
+    input.checklist.criteria[0].description = 'Приветствие и представление в начале диалога.';
+    input.checklist.criteria[0].naCondition = naCondition;
+    const [voice] = evaluateMock(input);
+    assert.equal(voice.na, true);
+    assert.equal(voice.answer, null);
+    assert.ok(voice.na_reason);
+    input.channel = 'agent chat';
+    assert.equal(evaluateMock(input)[0].na, false);
+  }
+});
+
+test('voice evidence can move, but unrelated keys, conditions and roles cannot activate N/A', () => {
+  const input = recording('voice call');
+  input.transcript.unshift({turnIndex:0,speaker:'bot',text:'Контекст',timestamp:'unknown'});
+  input.transcript.forEach((t,i) => t.turnIndex=i);
+  assert.equal(evaluateMock(input)[0].evidence[0].turnIndex,1);
+  for (const patch of [{key:'new-rule'}, {naCondition:'Клиент отказался отвечать.'}, {allowNa:false}]) {
+    const changed = structuredClone(input);
+    Object.assign(changed.checklist.criteria[0],patch);
+    assert.equal(evaluateMock(changed)[0].na,false);
+  }
+  input.transcript[1].speaker='client';
+  assert.equal(evaluateMock(input)[0].na,false);
 });
