@@ -1,0 +1,6 @@
+# Dockerfile-specific ignore rules, relative to the ai/ build context.
+**
+!mock-server.mjs
+!http.mjs
+!mock.mjs
+!mock-na-fixtures.json

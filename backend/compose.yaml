@@ -9,6 +9,10 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
     volumes:
       - postgres_data:/var/lib/postgresql
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=30", "-c", "work_mem=2MB", "-c", "maintenance_work_mem=32MB"]
+    mem_limit: 384m
+    cpus: 0.75
+    pids_limit: 128
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
@@ -19,6 +23,7 @@ services:
 
   backend:
     build: .
+    init: true
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
@@ -38,17 +43,20 @@ services:
       IMPORT_TIMEOUT_MS: ${IMPORT_TIMEOUT_MS:-10000}
       IMPORT_MAX_BYTES: ${IMPORT_MAX_BYTES:-2097152}
       IMPORT_MAX_RECORDS: ${IMPORT_MAX_RECORDS:-500}
-      AI_MODE: ${AI_MODE:-http}
-      AI_BASE_URL: ${AI_DOCKER_BASE_URL:-http://ai:8001}
+      # This Compose stack deliberately runs the team's mock, never Gemini.
+      AI_MODE: http
+      AI_BASE_URL: http://ai:8001
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-100000}
       AI_MAX_RESPONSE_BYTES: ${AI_MAX_RESPONSE_BYTES:-2097152}
-      AI_SERVICE_KIND: ${AI_SERVICE_KIND:-ai}
-      AI_ALLOW_MOCK_IN_PRODUCTION: ${AI_ALLOW_MOCK_IN_PRODUCTION:-false}
-      AI_MOCK_SCENARIO: ${AI_MOCK_SCENARIO:-success}
+      AI_SERVICE_KIND: mock
+      AI_ALLOW_MOCK_IN_PRODUCTION: "true"
+      NODE_OPTIONS: --max-old-space-size=256
     ports:
       - "127.0.0.1:${PORT:-3000}:3000"
     depends_on:
       db:
+        condition: service_healthy
+      ai:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "docker/healthcheck.js"]
@@ -57,7 +65,57 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
-    # A future AI service can join the default Compose network.
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    stop_grace_period: 15s
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  ai:
+    build:
+      context: ../ai
+      dockerfile: ../backend/docker/ai-mock.Dockerfile
+    init: true
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8001
+      NODE_OPTIONS: --max-old-space-size=64
+    ports:
+      - "127.0.0.1:${AI_PORT:-8001}:8001"
+    healthcheck:
+      # The mock has no GET /health. Verify its HTTP validator's expected 422.
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:8001/v1/evaluations', {method:'POST',
+          headers:{'Content-Type':'application/json'}, body:'{}', signal:AbortSignal.timeout(2000)})
+          .then(async r=>process.exit(r.status===422 && (await r.json()).error?.code==='INVALID_CONVERSATION'?0:1))
+          .catch(()=>process.exit(1))
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: unless-stopped
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "2"
 
 volumes:
   postgres_data:

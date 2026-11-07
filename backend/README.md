@@ -174,8 +174,9 @@ npm.cmd run dev
 Backend обращается к `POST /v1/evaluations`, без redirects, с таймаутом 100 секунд и
 лимитом ответа 2 MB. Для реального AI задайте AI_SERVICE_KIND=ai после его подключения.
 При ошибке HTTP-клиент не переключается на mock автоматически.
-В Docker адрес задаёт AI_DOCKER_BASE_URL, default `http://ai:8001`; сервис ai пока
-не добавлен в Compose. Для production mock требуется явное AI_ALLOW_MOCK_IN_PRODUCTION=true.
+В демонстрационном Compose адрес фиксирован: `http://ai:8001`, режим HTTP,
+AI_SERVICE_KIND=mock и AI_ALLOW_MOCK_IN_PRODUCTION=true. Сервис ai запускает только
+командный mock; локальные AI_MODE/AI_BASE_URL из `.env` это не переопределяют.
 
 Unit-проверки клиента не требуют БД:
 
@@ -289,14 +290,23 @@ HTTP- и DB-тесты используют синтетические данн�
 Проверено локально на изолированном PostgreSQL 18.6: свежие миграции, повторный seed,
 23 API/DB-теста (включая регрессию этапа 2 и реальный отказ соединения БД).
 Scoring проверяется отдельно через `test:scoring` и также входит в `npm test`.
-Docker runtime в этом окружении недоступен.
+Проверка контейнерного запуска описана в разделе Docker ниже.
 
 ## Docker Desktop / PowerShell
 
-Требуется запущенный Docker Desktop с Linux containers и Compose v2.
+Фактические результаты текущей проверки и диагностика зависшего Docker Desktop:
+[docs/docker-stage7-check.md](docs/docker-stage7-check.md). Образы собраны, но старт
+контейнеров пока заблокирован; контейнерная интеграция не подтверждена.
+
+Общий Compose находится в `backend/compose.yaml`: PostgreSQL 18, Backend и командный
+AI mock. Требуется запущенный Docker Desktop с Linux containers и Compose v2+ (включая v5).
 
 ```powershell
 Set-Location C:\Users\zhanel\CQA\backend
+# Для терминала, открытого до установки Docker Desktop:
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    $env:Path = "$env:LOCALAPPDATA\Programs\DockerDesktop\resources\bin;$env:Path"
+}
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 notepad.exe .env
 ```
@@ -309,28 +319,55 @@ Docker автоматически собирает DATABASE_URL с адресо�
 
 ```powershell
 docker compose config --quiet
-docker compose up -d --build --wait --wait-timeout 180
+# Последовательная сборка уменьшает пиковую нагрузку при 1.9 GiB памяти.
+docker compose build ai
+docker compose build backend
+docker compose up -d --wait --wait-timeout 180
 docker compose ps
 docker compose logs --tail 50 backend
-docker compose exec backend npm run db:status
-docker compose exec backend npm run db:check
-docker compose exec backend npm run db:seed:official
+docker compose exec -T backend npm run db:status
+docker compose exec -T backend npm run db:check
+docker compose exec -T backend npm run db:seed:official
+docker compose exec -T backend npm run db:seed:call-na
 Invoke-RestMethod -Uri http://127.0.0.1:3000/api/health
 ```
 
-Первая сборка может занять несколько минут. Backend ждёт healthcheck PostgreSQL,
+Из корня `C:\Users\zhanel\CQA` равнозначный запуск всей системы после сборки:
+
+```powershell
+docker compose --env-file backend/.env -f backend/compose.yaml up -d --wait --wait-timeout 180
+```
+
+Первая сборка может занять несколько минут. Backend ждёт healthchecks PostgreSQL и AI,
 применяет миграции, проверяет соединение и затем открывает HTTP-порт.
 Prisma CLI оставлен в runtime dependencies для выполнения миграций в MVP.
-Backend работает от пользователя `node`. `.env` не попадает в образ и build context.
+Backend и AI работают от пользователя `node`. `.env` не попадает в образы и build context.
+Backend Dockerfile сохранён. Dockerfile mock расположен в `backend/docker/ai-mock.Dockerfile`,
+его отдельный ignore-файл разрешает только четыре runtime-файла из контекста `ai/`.
+Файлы AI-разработчика не изменяются. Gemini-код и API-ключи в образ mock не включены.
+AI healthcheck делает локальный POST `{}` и ожидает 422/INVALID_CONVERSATION: отдельного
+GET /health у командного mock нет. Это проверка готовности HTTP-обработчика.
+
 Порт PostgreSQL на Windows не опубликован. Backend доступен на `127.0.0.1:3000`;
 `PORT` в `.env` меняет внешний порт, при его изменении исправьте URL проверки.
+AI mock доступен на `127.0.0.1:8001`; `AI_PORT` меняет только внешний порт.
+Внутри сети Backend всегда обращается к `http://ai:8001`, PostgreSQL — к `db:5432`.
 Volume `postgres_data` смонтирован в `/var/lib/postgresql` для PostgreSQL 18.
-Будущий сервис AI сможет подключиться к общей сети Compose.
+
+Лимиты памяти контейнеров: Backend 512 MiB, PostgreSQL 384 MiB, AI 128 MiB,
+в сумме 1024 MiB. Оставшаяся память нужна Docker VM, ОС и сборке. Node heap ограничен
+256/64 MiB для Backend/AI; PostgreSQL — shared_buffers 64 MB, max_connections 30.
+Заданы также лимиты CPU и количества процессов; журналы Backend и AI ротируются.
+Это настройки для демонстрации на небольших данных; нагрузочная проверка не выполнялась.
+
+Frontend подключается к `http://localhost:3000/api`. По умолчанию CORS допускает
+`http://localhost:5173` и `http://localhost:3000`. Если Frontend открыт на другом origin,
+задайте точное значение в CORS_ORIGINS и пересоздайте Backend через `docker compose up -d`.
 
 Остановка и запуск с сохранением данных:
 
 ```powershell
-docker compose down
+docker compose stop
 docker compose up -d --wait
 ```
 
@@ -338,31 +375,22 @@ docker compose up -d --wait
 POSTGRES_* инициализируют новый volume: изменение пароля в `.env` не меняет пароль
 пользователя уже существующей базы.
 
-## Проверка сохранности Docker volume
+## Проверка сохранности оценок и Docker volume
 
-Создайте отдельную тестовую запись:
-
-```powershell
-@'
-INSERT INTO "Conversation" (id, "externalId", language, channel, transcript)
-VALUES ('00000000-0000-4000-8000-000000000002', '__cqa_volume_probe__', 'EN', 'test', '[]');
-'@ | docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-
-docker compose down
-docker compose up -d --wait
-
-@'
-SELECT id, "externalId" FROM "Conversation" WHERE "externalId" = '__cqa_volume_probe__';
-'@ | docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-```
-
-Должна вернуться та же запись. После проверки удалите только её:
+После создания `$evaluation` через API (раздел Evaluations выше) сохраните ответ,
+перезапустите контейнеры и повторите чтение:
 
 ```powershell
-@'
-DELETE FROM "Conversation" WHERE id = '00000000-0000-4000-8000-000000000002' AND "externalId" = '__cqa_volume_probe__';
-'@ | docker compose exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+$evaluationId = $evaluation.data.id
+$beforeRestart = Invoke-RestMethod "http://127.0.0.1:3000/api/evaluations/$evaluationId"
+docker compose restart
+docker compose up -d --wait --wait-timeout 180
+$afterRestart = Invoke-RestMethod "http://127.0.0.1:3000/api/evaluations/$evaluationId"
+($beforeRestart | ConvertTo-Json -Depth 50 -Compress) -eq ($afterRestart | ConvertTo-Json -Depth 50 -Compress)
 ```
+
+Ожидается `True`: тот же ID, исходные объяснения, evidence и score. Проверка апелляции
+и окончательного результата приведена в разделе Appeals. Никакие записи удалять не нужно.
 
 ## Локальный Node.js и локальный PostgreSQL
 
