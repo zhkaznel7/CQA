@@ -1,0 +1,4 @@
+{"at":"2026-11-07T16:34:22.312Z","request_id":"9326d711-2396-4f52-a499-36e14450d55f","model":"gemini-3.8-flash","event":"evaluation_started","elapsed_ms":0}
+{"at":"2026-11-07T16:34:22.321Z","request_id":"9326d711-2396-4f52-a499-36e14450d55f","model":"gemini-3.8-flash","event":"provider_dispatched","elapsed_ms":0,"timeout_ms":90000}
+{"at":"2026-11-07T16:35:52.328Z","request_id":"9326d711-2396-4f52-a499-36e14450d55f","model":"gemini-3.8-flash","event":"provider_timeout","elapsed_ms":90009,"phase":"awaiting_headers"}
+{"at":"2026-11-07T16:35:52.329Z","request_id":"9326d711-2396-4f52-a499-36e14450d55f","model":"gemini-3.8-flash","event":"evaluation_failed","elapsed_ms":90019,"error_code":"AI_TIMEOUT"}
