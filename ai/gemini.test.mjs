@@ -68,6 +68,42 @@ test('N/A assessment is required, and allowNa alone does not grant N/A', async (
   await assert.rejects(run(input, [result]), /na_assessment.condition_met/);
 });
 
+test('consultation: client only requested a human and left before naming an issue', async () => {
+  const input = conversation('p1-ru-025', ['04']);
+  const result = row(input, '04', 10);
+  result.na_assessment = {condition_met: true, reason: 'Клиент хотел объяснить вопрос после подключения и вышел до этого.'};
+  result.evidence.unshift({turnIndex: 4, quote: input.transcript[4].text});
+  result.checked_range = {start: 0, end: 10};
+  const [wire] = await run(input, [result], {inspect: body => {
+    const {na_policies} = JSON.parse(body.contents[0].parts[0].text);
+    assert.deepEqual(na_policies.map(p => [p.criterion_id, p.key]), [['04', 'chat_ended_before_issue_stated']]);
+    assert.match(na_policies[0].instructions, /только просил соединить с оператором.*condition_met=true, верни levels=\[\]/);
+  }});
+  assert.equal(wire.na, true);
+  assert.equal(wire.answer, null);
+  assert.deepEqual(wire.evidence, result.evidence);
+  assert.deepEqual(wire.checked_range, result.checked_range);
+});
+
+test('consultation: a problem described to the bot before handoff remains assessable after departure', async () => {
+  const input = conversation('p1-ru-025', ['04']);
+  input.transcript[4].text = 'Подключите оператора. Не могу войти в личный кабинет.';
+  const result = row(input, '04', 9);
+  result.na_assessment = {condition_met: false, reason: 'Клиент описал проблему со входом до подключения оператора.'};
+  result.evidence.unshift({turnIndex: 4, quote: 'Не могу войти в личный кабинет.'});
+  result.omission = true;
+  result.levels = [{value: 0, met: true, reason: 'Оператор только спросил, чем помочь. Инструкции по входу до окончания чата не было.'}];
+  const [wire] = await run(input, [result], {inspect: body => {
+    const {na_policies} = JSON.parse(body.contents[0].parts[0].text);
+    assert.match(na_policies[0].instructions, /сообщения боту до подключения оператора/);
+    assert.match(na_policies[0].instructions, /уже описал проблему, установи condition_met=false даже при последующем уходе/);
+  }});
+  assert.equal(wire.na, false);
+  assert.equal(wire.na_reason, null);
+  assert.equal(wire.answer, 0);
+  assert.deepEqual(wire.evidence, result.evidence);
+});
+
 test('N/A with evidence for sufficient initial details produces a consistent wire result', async () => {
   const input = conversation('p1-kz-005', ['02']);
   const result = row(input, '02', 0);
@@ -90,7 +126,9 @@ test('p1-ru-025: departure cannot override insufficient initial information for 
   const before = structuredClone(input);
   const [wire, other] = await run(input, [discovery, consultation], {inspect: body => {
     const data = JSON.parse(body.contents[0].parts[0].text);
-    assert.deepEqual(data.na_policies.map(p => [p.criterion_id, p.key]), [['02','initial_information_sufficient']]);
+    assert.deepEqual(data.na_policies.map(p => [p.criterion_id, p.key]), [
+      ['02','initial_information_sufficient'], ['04','chat_ended_before_issue_stated']
+    ]);
     assert.match(data.na_policies[0].instructions, /Уход клиента не доказывает/);
     const assessment = body.generationConfig.responseJsonSchema.properties.results.items.properties.na_assessment;
     assert.ok(assessment.required.includes('initial_information_sufficient'));
@@ -247,6 +285,27 @@ test('the merged discovery check returned in 2.3.0 is rejected instead of counte
     message: /нужны отдельные checks.*known_details_considered.*missing_details_clarified_before_answer/});
   result.checks[0].condition = 'known_details_considered';
   await assert.rejects(run(input, [result]), /нужны отдельные checks/);
+});
+
+test('p1-ru-025: discovery prompt pairs client context and operator clarification with their own quotes', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  const result = row(input, '02', 9);
+  result.na_assessment.initial_information_sufficient = false;
+  result.checks = [check('known_details_considered', true, 4),
+    check('missing_details_clarified_before_answer', true, 9, 2)];
+  result.evidence = [{turnIndex:9, quote:'С чем помочь?'}];
+  await assert.rejects(run(input, [result]), {code:'INVALID_MODEL_OUTPUT', message:/доказательств/});
+
+  result.evidence.push({turnIndex:4, quote:'Сразу подключите оператора'});
+  const [wire] = await run(input, [result], {inspect: body => {
+    const instruction = body.systemInstruction.parts[0].text;
+    assert.match(instruction, /checks\[\]\.turnIndexes.*evidence этого же критерия.*transcript\[i\]\.text/s);
+    assert.match(instruction, /need_discovery[^\n]*процитируй обе реплики с их собственными индексами/);
+  }});
+  assert.equal(wire.answer, true);
+  assert.deepEqual(wire.evidence, result.evidence);
+  result.evidence[1].quote = result.evidence[0].quote;
+  await assert.rejects(run(input, [result]), {code:'INVALID_MODEL_OUTPUT', message:/цитата не совпала/});
 });
 
 test('duplicate, unknown and OR-grouped discovery conditions cannot replace a mandatory condition', async () => {

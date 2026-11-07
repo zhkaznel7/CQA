@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {fail} from './http.mjs';
 
-export const PROMPT_VERSION = '2.4.1';
+export const PROMPT_VERSION = '2.4.3';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 const policySource = readFileSync(new URL('./config/na-policies.v1.json', import.meta.url));
 const naPolicies = JSON.parse(policySource).policies;
@@ -43,6 +43,7 @@ condition_met=false означает «основания N/A нет», код �
 Это поле НЕ означает, что критерий применим, выполнен оператором или заслуживает положительной оценки.
 Если allowNa=false, condition_met ОБЯЗАТЕЛЬНО false: N/A запрещён независимо от качества работы оператора.
 Если allowNa=true, проверь точное naCondition. Само разрешение N/A не означает выполнения условия.
+Если в na_policies есть запись для текущего criterion_id, примени её instructions при проверке этого условия.
 Если для критерия передана na_policies с key=initial_information_sufficient, сначала независимо заполни na_assessment.initial_information_sufficient (boolean).
 Для этого правила код определяет N/A по initial_information_sufficient; condition_met должен совпадать с ним. Для остальных критериев, если поле предусмотрено схемой, initial_information_sufficient=null.
 Указанное правило связано с точным условием naCondition, а не с номером критерия. При изменении условия следуй текущей рубрике.
@@ -87,6 +88,8 @@ detected=true означает «нарушение обнаружено», dete
 
 explanation — короткое объяснение на русском, согласованное с проверками.
 evidence — дословные непустые подстроки исходных реплик без перевода. Все индексы из checks и violations должны быть представлены в evidence.
+Перед сдачей каждого критерия собери все различные индексы из его checks[].turnIndexes. Для каждого индекса i добавь в evidence этого же критерия запись {turnIndex: i, quote: дословный фрагмент transcript[i].text}, подтверждающую ссылку.
+Для need_discovery, когда известные детали взяты из реплики клиента, а уточнение — из ответа оператора, процитируй обе реплики с их собственными индексами. Если обе проверки используют один и тот же фрагмент, достаточно одной записи. Сверь каждый индекс и цитату с транскриптом.
 checked_range — включительный проверенный участок, содержащий все доказательства этого критерия. Для пропуска omission=true и диапазон обязателен.
 Для любого применимого boolean с итогом Нет checked_range обязателен независимо от omission. Наличие точной цитаты не заменяет диапазон.
 При отрицательном flag укажи диапазон всего диалога: отсутствие нарушения нельзя доказать одной последней репликой.
