@@ -1,0 +1,24 @@
+{
+  "conversation_id": "T06",
+  "checklist_version": 1,
+  "model": "gemini-3.5-flash-lite",
+  "results": [
+    {
+      "criterion_id": "03",
+      "answer": false,
+      "na": false,
+      "na_reason": null,
+      "explanation": "Проверка личности подтверждена до раскрытия данных или защищённого действия — не подтверждено. Оператор сразу сообщил остаток по счету без запроса идентификации клиента.",
+      "evidence": [
+        {
+          "turnIndex": 1,
+          "quote": "На вашем счёте 100 условных единиц."
+        }
+      ],
+      "checked_range": {
+        "start": 0,
+        "end": 1
+      }
+    }
+  ]
+}
