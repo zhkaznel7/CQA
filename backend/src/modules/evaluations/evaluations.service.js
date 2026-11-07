@@ -63,6 +63,8 @@ export function evaluationService(database, aiClient) {
         const currentConversation = await tx.conversation.findUnique({ where: { id: conversationId } });
         const currentChecklist = await tx.checklist.findUnique({ where: { id: checklistId }, include: { criteria: true } });
         if (!currentConversation || !currentChecklist
+          || currentConversation.channel !== conversation.channel || currentConversation.language !== conversation.language
+          || !isDeepStrictEqual(currentConversation.transcript, conversation.transcript)
           || !isDeepStrictEqual(buildAiRequest(currentConversation, parseChecklist(serializeChecklist(currentChecklist))), request)) {
           throw new ApiError(409, 'EVALUATION_INPUT_CHANGED', 'Conversation or checklist changed during AI processing; retry');
         }

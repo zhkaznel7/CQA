@@ -22,11 +22,12 @@ const confirmation = (criterionKey, rule = 'verified_condition', source = conver
   conversationId: source.id, checklistId: version.id, criterionKey, rule, confirmedBy: 'test-reviewer', reference: 'Synthetic independently verified fact',
 });
 
-test('wire request uses the exact agreed fields and original timestamps', () => {
+test('wire fields preserve timestamp text and serialize numeric time without mutating the source', () => {
   assert.deepEqual(Object.keys(request), ['conversation_id', 'channel', 'language', 'transcript', 'checklist']);
   assert.deepEqual(Object.keys(request.checklist.criteria[0]), ['key', 'name', 'type', 'description', 'sectionKey', 'weight', 'scaleSteps', 'allowNa', 'naCondition']);
   assert.equal(request.transcript[0].timestamp, '00:00:01.250');
-  assert.equal(request.transcript[1].timestamp, 1500);
+  assert.equal(request.transcript[1].timestamp, '1500');
+  assert.equal(conversation.transcript[1].timestamp, 1500);
 });
 
 test('wire channel aliases match team AI without changing stored data or N/A context', () => {

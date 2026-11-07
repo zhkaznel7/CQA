@@ -20,6 +20,7 @@ test('Evaluations API, persistence, rollback, dynamic versions and explicit N/A 
   let activeClient = createMockAiClient();
   let calls = 0;
   let lastResponse;
+  let lastRequest;
   let forceWriteFailure = false;
   let mutateDuringAi;
   try {
@@ -47,6 +48,7 @@ test('Evaluations API, persistence, rollback, dynamic versions and explicit N/A 
       const database = transactionView(tx);
       const aiClient = { source: 'mock', transport: 'local', async evaluate(request) {
         calls++;
+        lastRequest = structuredClone(request);
         lastResponse = await activeClient.evaluate(request);
         if (mutateDuringAi) { await mutateDuringAi(); mutateDuringAi = undefined; }
         return lastResponse;
@@ -169,6 +171,56 @@ test('Evaluations API, persistence, rollback, dynamic versions and explicit N/A 
         mutateDuringAi = () => tx.conversation.update({ where: { id: item.conversation.id }, data: { channel: 'voice' } });
         assert.equal((await request('/api/evaluations', item.input)).status, 409);
         assert.equal(await tx.evaluation.count({ where: item.input }), 0);
+      });
+
+      await t.test('numeric timestamps and known role casing adapt for AI while PostgreSQL and GET keep originals', async () => {
+        const item = await fixture();
+        const transcript = [
+          { turnIndex: 0, timestamp: 1250, speaker: ' OPERATOR ', text: 'Synthetic source preserved' },
+          { turnIndex: 1, startMs: 0, endMs: 3000, speaker: 'Client', text: 'Synthetic reply preserved' },
+        ];
+        await tx.conversation.update({ where: { id: item.conversation.id }, data: { transcript } });
+        activeClient = createMockAiClient();
+        const response = await request('/api/evaluations', item.input);
+        assert.equal(response.status, 201);
+        assert.deepEqual(lastRequest.transcript.map((turn) => [turn.timestamp, turn.speaker]), [['1250', 'operator'], ['0', 'client']]);
+        assert.deepEqual((await tx.conversation.findUniqueOrThrow({ where: { id: item.conversation.id } })).transcript, transcript);
+        assert.deepEqual((await request(`/api/conversations/${item.conversation.id}`)).body.data.transcript, transcript);
+        assert.equal(Object.hasOwn(transcript[1], 'timestamp'), false);
+      });
+
+      await t.test('missing time and unknown roles return 422 before AI with no writes or source replacement', async () => {
+        for (const [turn, expected] of [
+          [{ speaker: 'operator', text: 'Synthetic missing time' }, 'AI_TIMESTAMP_REQUIRED'],
+          [{ speaker: 'agent', timestamp: '00:05', text: 'Synthetic unknown role' }, 'AI_SPEAKER_UNSUPPORTED'],
+        ]) {
+          const item = await fixture(); const transcript = [turn];
+          await tx.conversation.update({ where: { id: item.conversation.id }, data: { transcript } });
+          const beforeCalls = calls;
+          const response = await request('/api/evaluations', item.input);
+          assert.equal(response.status, 422); assert.equal(response.body.error.code, expected);
+          assert.equal(calls, beforeCalls);
+          assert.equal(await tx.evaluation.count({ where: item.input }), 0);
+          assert.deepEqual((await tx.conversation.findUniqueOrThrow({ where: { id: item.conversation.id } })).transcript, transcript);
+        }
+      });
+
+      await t.test('raw input changes still yield 409 when normalization would hide the change', async () => {
+        for (const [original, changed] of [
+          [{ timestamp: 1250, speaker: 'operator' }, { timestamp: '1250', speaker: 'operator' }],
+          [{ timestamp: '00:05', speaker: ' OPERATOR ' }, { timestamp: '00:05', speaker: 'operator' }],
+        ]) {
+          const item = await fixture();
+          const transcript = [{ turnIndex: 0, text: 'Synthetic normalization collision', ...original }];
+          await tx.conversation.update({ where: { id: item.conversation.id }, data: { transcript } });
+          activeClient = createMockAiClient();
+          mutateDuringAi = () => tx.conversation.update({ where: { id: item.conversation.id }, data: {
+            transcript: [{ turnIndex: 0, text: 'Synthetic normalization collision', ...changed }],
+          } });
+          const response = await request('/api/evaluations', item.input);
+          assert.equal(response.status, 409); assert.equal(response.body.error.code, 'EVALUATION_INPUT_CHANGED');
+          assert.equal(await tx.evaluation.count({ where: item.input }), 0);
+        }
       });
 
       await t.test('boolean -> scale 0/2/4 in a new version is passed dynamically; old score stays unchanged', async () => {
