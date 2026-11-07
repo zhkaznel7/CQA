@@ -62,6 +62,29 @@ class ExportTests(unittest.TestCase):
         self.response["results"][0]["checked_range"] = {"start": 0, "end": 3}
         self.assertEqual(self.convert()["criteria"][0]["evidence_turns"], [1, 2, 3, 4])
 
+    def test_false_boolean_requires_range_but_flag_false_and_numeric_zero_do_not(self):
+        for position in [0, 1, 2, 4, 6]:
+            with self.subTest(criterion=position + 1):
+                original = copy.deepcopy(self.response)
+                original_score = copy.deepcopy(self.scored)
+                self.response["results"][position].update(answer=False, na=False, na_reason=None)
+                self.scored["score"]["criteria"][position].update(value=False, isNa=False)
+                result = self.convert()
+                self.assertEqual(result["status"], "error")
+                self.assertIn("checked_range", result["error"])
+                self.response["results"][position]["checked_range"] = {"start": 2, "end": 2}
+                result = self.convert()
+                self.assertEqual(result["status"], "ok")
+                self.assertIs(result["criteria"][position]["value"], False)
+                self.response = original
+                self.scored = original_score
+        self.response["results"][7]["answer"] = False
+        self.scored["score"]["criteria"][7]["value"] = False
+        self.scored["score"]["grossError"] = False
+        self.response["results"][3]["answer"] = 0
+        self.scored["score"]["criteria"][3]["value"] = 0
+        self.assertEqual(self.convert()["status"], "ok")
+
     def test_chat_contact_na_is_rejected_not_replaced_by_false(self):
         self.response["results"][0].update(answer=None, na=True, na_reason="Обрезанный звонок")
         row = self.convert()

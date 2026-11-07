@@ -120,6 +120,9 @@ def convert(record, response, scored, mapping, dataset=None):
             if not na and na_reason is not None:
                 raise ValueError("Причина N/A у применимого критерия.")
             span = row.get("checked_range")
+            # critical is a flag in the AI contract, although submission uses a boolean value.
+            if not na and kind == "boolean" and code != "critical" and value is False and span is None:
+                raise ValueError("boolean=false требует checked_range для " + code + ".")
             if span is not None:
                 if (not isinstance(span, dict) or type(span.get("start")) is not int or
                     type(span.get("end")) is not int or not 0 <= span["start"] <= span["end"] < len(transcript)):

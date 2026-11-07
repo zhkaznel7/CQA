@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {fail} from './http.mjs';
 
-export const PROMPT_VERSION = '2.3.1';
+export const PROMPT_VERSION = '2.3.2';
 const policySource = readFileSync(new URL('./config/na-policies.v1.json', import.meta.url));
 const naPolicies = JSON.parse(policySource).policies;
 const checkPolicySource = readFileSync(new URL('./config/check-policies.v1.json', import.meta.url));
@@ -85,6 +85,7 @@ detected=true означает «нарушение обнаружено», dete
 explanation — короткое объяснение на русском, согласованное с проверками.
 evidence — дословные непустые подстроки исходных реплик без перевода. Все индексы из checks и violations должны быть представлены в evidence.
 checked_range — включительный проверенный участок, содержащий все доказательства этого критерия. Для пропуска omission=true и диапазон обязателен.
+Для любого применимого boolean с итогом Нет checked_range обязателен независимо от omission. Наличие точной цитаты не заменяет диапазон.
 При отрицательном flag укажи диапазон всего диалога: отсутствие нарушения нельзя доказать одной последней репликой.
 Для пропуска доказательство показывает место, где действие ожидалось; для N/A оно подтверждает условие.
 Не выдумывай тарифы, сроки и продуктовые факты. База знаний не предоставлена: если оценка зависит от внешнего факта, перечисли ограничение в limitations и не называй факт проверенным.
@@ -273,7 +274,9 @@ export function validateResults(rows, {checklist, transcript}) {
       answer = booleanAnswer(checks, reject, evidenceIndexes);
     }
     const span = r.checked_range;
-    if ((r.omission && !span) || (span !== null &&
+    // Match Backend validation even if the model misses its internal omission tag.
+    const rangeRequired = r.omission || (!na && c.type === 'boolean' && answer === false);
+    if ((rangeRequired && !span) || (span !== null &&
         (!index(span?.start) || !index(span?.end) || span.start > span.end))) reject('неверный или пропущенный checked_range');
     if (span && evidence.some(e => e.turnIndex < span.start || e.turnIndex > span.end)) reject('доказательство вне проверенного диапазона');
     if (!na && c.type === 'flag' && !answer && (!span || span.start !== 0 || span.end !== transcript.length - 1)) reject('отрицательный флаг требует проверки всего диалога');

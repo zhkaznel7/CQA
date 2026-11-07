@@ -323,6 +323,66 @@ test('compound conditions compute AND and OR; unsupported evidence is rejected',
   assert.throws(() => validateResults([result], input), /доказательств/);
 });
 
+test('boolean=false requires checked_range even with a valid quote and omission=false', async () => {
+  for (const key of ['01', 'custom-greeting']) {
+    const input = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
+    input.checklist.criteria = [{...input.checklist.criteria.find(c => c.key === '01'), key}];
+    const result = row(input, key, 1);
+    result.checks = [check('Приветствие', true, 1), check('Представление', false, 1, 2)];
+    result.checked_range = null;
+    result.omission = false;
+    await assert.rejects(run(input, [result]), {status: 502, code: 'INVALID_MODEL_OUTPUT', message: /checked_range/});
+    delete result.checked_range;
+    await assert.rejects(run(input, [result]), {status: 502, code: 'INVALID_MODEL_OUTPUT', message: /checked_range/});
+  }
+});
+
+test('boolean=false accepts inclusive ranges and still rejects invalid bounds or excluded evidence', async () => {
+  const input = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
+  input.checklist.criteria = input.checklist.criteria.filter(c => c.key === '01');
+  const result = row(input, '01', 1);
+  result.checks = [check('Приветствие', true, 1), check('Представление', false, 1, 2)];
+  for (const span of [{start: 1, end: 1}, {start: 0, end: 1}]) {
+    result.checked_range = span;
+    const [wire] = await run(input, [result]);
+    assert.equal(wire.answer, false);
+    assert.equal(wire.na, false);
+    assert.deepEqual(wire.checked_range, span);
+    assert.deepEqual(Object.keys(wire).sort(),
+      ['criterion_id','answer','na','na_reason','explanation','evidence','checked_range'].sort());
+  }
+  for (const span of [{start: 0, end: 0}, {start: 1, end: 0}, {start: -1, end: 1}, {start: 0, end: 2}]) {
+    result.checked_range = span;
+    await assert.rejects(run(input, [result]), {status: 502, code: 'INVALID_MODEL_OUTPUT'});
+  }
+});
+
+test('positive boolean, N/A and numeric zero do not inherit the boolean=false range requirement', async () => {
+  const greetingInput = conversation('p1-ru-025', ['01']);
+  const greeting = row(greetingInput, '01', 9);
+  greeting.checks = [check('Приветствие', true, 9), check('Представление', true, 9, 2)];
+  greeting.checked_range = null;
+  assert.equal((await run(greetingInput, [greeting]))[0].answer, true);
+
+  const naInput = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
+  naInput.checklist.criteria = naInput.checklist.criteria.filter(c => c.key === '03');
+  const notApplicable = row(naInput, '03', 0);
+  notApplicable.na_assessment = {condition_met: true, reason: 'Публичный вопрос о тарифах не требует идентификации.'};
+  notApplicable.checked_range = null;
+  const [naWire] = await run(naInput, [notApplicable]);
+  assert.equal(naWire.na, true);
+  assert.equal(naWire.answer, null);
+
+  const scaleInput = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
+  scaleInput.checklist.criteria = scaleInput.checklist.criteria.filter(c => c.key === '04');
+  const zero = row(scaleInput, '04', 1);
+  zero.levels = [{value: 0, met: true, reason: 'Дано только обещание уточнить, ответа по существу нет.'}];
+  zero.checked_range = null;
+  const [zeroWire] = await run(scaleInput, [zero]);
+  assert.equal(zeroWire.answer, 0);
+  assert.equal(zeroWire.checked_range, null);
+});
+
 test('p1-en-014: reaction to concern is separately required for empathy', async () => {
   const input = conversation('p1-en-014', ['05']);
   const result = row(input, '05', 12);

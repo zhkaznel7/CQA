@@ -64,6 +64,8 @@ def validate_result(result, criterion, transcript):
     if "checked_range" not in result:
         raise ValueError("нет поля checked_range")
     span = result["checked_range"]
+    if not result["na"] and criterion["type"] == "boolean" and result["answer"] is False and span is None:
+        raise ValueError("boolean=false требует checked_range")
     if span is not None:
         if not isinstance(span, dict):
             raise ValueError("некорректный checked_range")
