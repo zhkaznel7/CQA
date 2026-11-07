@@ -15,13 +15,19 @@ export function saveProviderArtifact(outputDir, response, payload, key, conversa
   writeFileSync(path.join(outputDir, '.run', name), safe, {mode: 0o600, flag: 'wx'});
 }
 
-export function recordingRequest({outputDir, key, conversationId, request = fetch}) {
+export function recordingRequest({outputDir, key, conversationId, request = fetch, warn = console.warn}) {
   return async (url, init) => {
     const response = await request(url, init);
     return {status: response.status, ok: response.ok, headers: response.headers,
       text: async () => {
         const payload = await response.text();
-        saveProviderArtifact(outputDir, response, payload, key, conversationId);
+        try {
+          saveProviderArtifact(outputDir, response, payload, key, conversationId);
+        } catch {
+          // Google has already replied. A local diagnostic write failure must
+          // not replace its HTTP status with a retryable network error.
+          warn('Не удалось сохранить диагностическое тело ответа Google. HTTP ' + response.status + '.');
+        }
         return payload;
       }};
   };

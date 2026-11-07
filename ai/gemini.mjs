@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {fail} from './http.mjs';
 
-export const PROMPT_VERSION = '2.4.0';
+export const PROMPT_VERSION = '2.4.1';
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 const policySource = readFileSync(new URL('./config/na-policies.v1.json', import.meta.url));
 const naPolicies = JSON.parse(policySource).policies;
@@ -60,11 +60,11 @@ condition_met=false означает «основания N/A нет», код �
 {group: положительное целое, condition: одно условие, met: boolean, reason: фактическое обоснование, turnIndexes: индексы доказательств}.
 Все группы обязательны (И), альтернативы внутри группы объединяются через ИЛИ. Итоговый answer вычислит код.
 Для A и B дай две группы, включая отсутствующее действие; для A или B — одну группу с двумя альтернативами.
-Если критерий указан в check_policies, верни ровно по одной проверке checks на каждый заданный id: condition_id=id, group и condition из конфигурации.
+Если критерий указан в check_policies, верни ровно по одной проверке checks на каждый заданный id: в поле condition запиши точный id, в group — группу из конфигурации. Текст условия для объяснения подставит код.
 Не объединяй обязательные условия в одну проверку. Для каждого отдельно укажи met, reason и turnIndexes, даже если обе проверки ссылаются на одну реплику.
 Группы и альтернативы определяет текущая конфигурация. В need_discovery два условия обязательны; в closure нужны (итог ИЛИ дальнейшая помощь) И прощание.
 Условие реакции на неудобство не нарушено, если триггера не было: укажи met=true и причину отсутствия триггера, не придумывая жалобу.
-Для остальных критериев, если condition_id предусмотрен схемой, укажи null и разбей текущую рубрику на условия самостоятельно. При N/A checks=[].
+Для остальных критериев разбей текущую рубрику на условия самостоятельно и запиши в condition текст каждого условия. При N/A checks=[].
 Сохраняй условия «если»: если триггер не возник, объясни, почему требование не нарушено.
 Не добавляй «третьим лицам», факт оплаты или согласие клиента, если этого нет в рубрике.
 Реальная помощь может быть реакцией на неудобство без шаблонного извинения. Отказ учитывать опасение клиента, например предложение пропустить проверку, не является положительной реакцией на это опасение.
@@ -108,7 +108,6 @@ function resultSchema(criteria, length) {
   // by validateResults; duplicating this object for every key bloats the
   // provider schema and can exceed structured-output complexity limits.
   const scaleValues = [...new Set(criteria.flatMap(c => c.type === 'scale' ? c.scaleSteps.map(s => s.value) : []))];
-  const hasCheckPolicy = criteria.some(c => checkPolicy(c)?.checks?.length);
   const row = object({
     criterion_id: {type: 'string', enum: criteria.map(c => c.key)},
     na_assessment: object({
@@ -119,8 +118,6 @@ function resultSchema(criteria, length) {
       reason: {type: 'string'}
     }),
     checks: {type: 'array', items: object({
-      ...(hasCheckPolicy ? {condition_id: {type: ['string', 'null'],
-        description: 'ID из check_policies; null для прочих критериев.'}} : {}),
       group: {type: 'integer', minimum: 1}, condition: {type: 'string'},
       met: {type: 'boolean'}, reason: {type: 'string'}, turnIndexes: indexes
     })},
@@ -166,7 +163,7 @@ function booleanAnswer(checks, reject, evidenceIndexes) {
 function requiredChecks(checks, criterion, transcript, reject) {
   const policy = checkPolicy(criterion);
   if (!policy || !Array.isArray(checks) || !checks.length) return checks;
-  const byId = new Map(checks.map(check => [check?.condition_id, check]));
+  const byId = new Map(checks.map(check => [check?.condition, check]));
   if (checks.length !== policy.checks.length || byId.size !== checks.length ||
       policy.checks.some(spec => !byId.has(spec.id))) {
     reject('нужны отдельные checks для обязательных условий: ' + policy.checks.map(spec => spec.id).join(', '));

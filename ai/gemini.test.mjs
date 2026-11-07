@@ -21,14 +21,14 @@ function check(condition, met, index, group = 1) {
 }
 function discoveryChecks(index, known = true, clarified = true) {
   return [
-    {...check('Оператор учёл известные детали', known, index), condition_id: 'known_details_considered'},
-    {...check('Оператор уточнил недостающее до ответа', clarified, index, 2), condition_id: 'missing_details_clarified_before_answer'}
+    check('known_details_considered', known, index),
+    check('missing_details_clarified_before_answer', clarified, index, 2)
   ];
 }
 function greetingChecks(index, greeted = true, introduced = true) {
   return [
-    {...check('Приветствие', greeted, index), condition_id: 'greeting_in_client_language'},
-    {...check('Представление', introduced, index, 2), condition_id: 'operator_introduced'}
+    check('greeting_in_client_language', greeted, index),
+    check('operator_introduced', introduced, index, 2)
   ];
 }
 function levels(input, key, selected, reason) {
@@ -223,9 +223,8 @@ test('p1-ru-025: discovery answer is AND of two independently evidenced conditio
         {id: 'missing_details_clarified_before_answer', group: 2, condition: 'Оператор уточнил недостающее до ответа'}
       ]}]);
       const checkSchema = body.generationConfig.responseJsonSchema.properties.results.items.properties.checks.items;
-      assert.ok(checkSchema.required.includes('condition_id'));
-      assert.deepEqual(checkSchema.properties.condition_id.type, ['string', 'null']);
-      assert.equal(Object.hasOwn(checkSchema.properties.condition_id, 'enum'), false);
+      assert.deepEqual(checkSchema.required, ['group','condition','met','reason','turnIndexes']);
+      assert.deepEqual(checkSchema.properties.condition, {type:'string'});
       assert.match(body.systemInstruction.parts[0].text, /Не объединяй обязательные условия/);
     }});
     assert.equal(wire.answer, expected);
@@ -246,7 +245,7 @@ test('the merged discovery check returned in 2.3.0 is rejected instead of counte
   result.checks = [check('Оператор учёл известные детали и уточнил недостающее до ответа', true, 9)];
   await assert.rejects(run(input, [result]), {code: 'INVALID_MODEL_OUTPUT', status: 502,
     message: /нужны отдельные checks.*known_details_considered.*missing_details_clarified_before_answer/});
-  result.checks[0].condition_id = 'known_details_considered';
+  result.checks[0].condition = 'known_details_considered';
   await assert.rejects(run(input, [result]), /нужны отдельные checks/);
 });
 
@@ -256,7 +255,7 @@ test('duplicate, unknown and OR-grouped discovery conditions cannot replace a ma
   result.na_assessment.initial_information_sufficient = false;
   for (const badChecks of [
     [discoveryChecks(9)[0], discoveryChecks(9)[0]],
-    [discoveryChecks(9)[0], {...discoveryChecks(9)[1], condition_id: 'other'}],
+    [discoveryChecks(9)[0], {...discoveryChecks(9)[1], condition: 'other'}],
     [...discoveryChecks(9), discoveryChecks(9)[0]]
   ]) {
     result.checks = badChecks;
@@ -393,8 +392,8 @@ test('positive boolean, N/A and numeric zero do not inherit the boolean=false ra
 test('p1-en-014: reaction to concern is separately required for empathy', async () => {
   const input = conversation('p1-en-014', ['05']);
   const result = row(input, '05', 12);
-  result.checks = [{...check('Вежливость', true, 12), condition_id: 'polite'},
-    {...check('Реакция на опасение о проверке личности', false, 12, 2), condition_id: 'reaction_to_inconvenience'}];
+  result.checks = [check('polite', true, 12),
+    check('reaction_to_inconvenience', false, 12, 2)];
   const [wire] = await run(input, [result]);
   assert.equal(wire.answer, false);
   assert.match(wire.explanation, /конкретную проблему — не подтверждено/);
@@ -678,10 +677,9 @@ test('official contact cannot pass with only greeting or evidence from a bot', a
 test('empathy includes the conditional reaction check even when there is no trigger', async () => {
   const input = conversation('p1-ru-025', ['05']);
   const result = row(input, '05', 9);
-  result.checks = [{...check('Вежливость', true, 9), condition_id: 'polite'}];
+  result.checks = [check('polite', true, 9)];
   await assert.rejects(run(input, [result]), /отдельные checks/);
-  result.checks.push({...check('Реакция при наличии неудобства', true, 9, 2),
-    condition_id: 'reaction_to_inconvenience', reason: 'Клиент не сообщил о неудобстве; условие не нарушено.'});
+  result.checks.push({...check('reaction_to_inconvenience', true, 9, 2), reason: 'Клиент не сообщил о неудобстве; условие не нарушено.'});
   assert.equal((await run(input, [result]))[0].answer, true);
 });
 
@@ -695,9 +693,9 @@ test('closure requires (summary OR further help) AND goodbye for every combinati
     ];
     const result = row(input, '07', 1);
     result.checks = [
-      {...check('Итог', summary, 1), condition_id:'summary'},
-      {...check('Дальнейшая помощь', help, 1), condition_id:'further_help'},
-      {...check('Прощание', goodbye, 1, 2), condition_id:'goodbye'}
+      check('summary', summary, 1),
+      check('further_help', help, 1),
+      check('goodbye', goodbye, 1, 2)
     ];
     assert.equal((await run(input, [result]))[0].answer, (summary || help) && goodbye);
   }

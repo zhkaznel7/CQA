@@ -5,7 +5,7 @@ import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import {fileURLToPath} from 'node:url';
-import {saveProviderArtifact} from './provider-artifacts.mjs';
+import {recordingRequest, saveProviderArtifact} from './provider-artifacts.mjs';
 
 async function temporary(run) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'cqa-diagnostics-'));
@@ -28,7 +28,18 @@ test('private provider errors retain diagnosis, redact keys and cannot overwrite
   if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600);
 }));
 
-test('one failed CLI request saves diagnosis, exits unsuccessfully and never repeats the saved attempt', () => temporary(async root => {
+test('a local artifact failure preserves the actual provider response', () => temporary(async outputDir => {
+  const warnings = [];
+  const request = recordingRequest({outputDir, warn: message => warnings.push(message),
+    request: async () => new Response('provider detail', {status: 400})});
+  const response = await request('offline');
+  assert.equal(response.status, 400);
+  assert.equal(await response.text(), 'provider detail');
+  assert.equal(warnings.length, 1);
+  assert.ok(!warnings[0].includes('provider detail'));
+}));
+
+test('the CLI preserves provider failures and replays completed archives offline', () => temporary(async root => {
   const repo = fileURLToPath(new URL('../../', import.meta.url));
   for (const relative of [
     'ai/gemini.mjs', 'ai/http.mjs', 'ai/config/check-policies.v1.json', 'ai/config/na-policies.v1.json',
@@ -77,4 +88,39 @@ globalThis.fetch = async () => {
   assert.ok(!error.includes(key));
   const report = JSON.parse(await readFile(path.join(root,'ai/evaluation/report-offline-error.json')));
   assert.ok(report.details.every(d => d.status === 'unavailable'));
+
+  const manifestFile = path.join(output,'.run/manifest.json');
+  const manifest = JSON.parse(await readFile(manifestFile));
+  manifest.prompt_version = '2.3.0';
+  const oldManifest = JSON.stringify(manifest);
+  await writeFile(manifestFile, oldManifest);
+  const reportPath = path.join(root,'ai/evaluation/report-offline-error.json');
+  await writeFile(reportPath, 'archived report');
+  const replay = (...flags) => spawnSync(process.execPath,[...args,...flags],
+    {cwd:root,encoding:'utf8',env:{...env,GEMINI_API_KEY:''}});
+  const archivedError = replay();
+  assert.equal(archivedError.status,1);
+  assert.match(archivedError.stdout,/Архив: промпт 2\.3\.0/);
+  assert.match(archivedError.stdout,/GEMINI_REQUEST_REJECTED/);
+  const savedFile = path.join(output,'p1-ru-025.json');
+  const full = {...JSON.parse(await readFile(path.join(baseline,'p1-ru-025.json'))), checklist_id:'dev-manual-benchmark'};
+  const oldAnswer = JSON.stringify(full);
+  await writeFile(savedFile,oldAnswer);
+  assert.equal(replay('--dry-run').status,0);
+  const archivedSuccess = replay();
+  assert.equal(archivedSuccess.status,0,archivedSuccess.stderr);
+  assert.match(archivedSuccess.stdout,/p1-ru-025 \/ 04/);
+  assert.equal(await readFile(savedFile,'utf8'),oldAnswer);
+  await writeFile(savedFile,JSON.stringify({...full,results:full.results.slice(1)}));
+  assert.match(replay().stderr,/неполный результат/);
+  await rm(savedFile);
+  assert.match(replay('--dry-run').stderr,/Архив неполный/);
+  assert.match(replay().stderr,/Архив неполный/);
+  assert.equal(await readFile(manifestFile,'utf8'),oldManifest);
+  assert.equal(await readFile(reportPath,'utf8'),'archived report');
+  await rm(manifestFile);
+  const missingArchive = replay('--archive-only');
+  assert.equal(missingArchive.status,1);
+  assert.match(missingArchive.stderr,/manifest отсутствует/);
+  assert.equal(await readFile(path.join(root,'calls'),'utf8'),'one\n');
 }));
