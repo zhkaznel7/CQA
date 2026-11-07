@@ -1,0 +1,53 @@
+import { afterEach, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import App from './App.vue'
+import { routes } from './routes.js'
+
+let wrapper
+afterEach(() => {
+  wrapper?.unmount()
+  vi.unstubAllGlobals()
+})
+
+function json(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status, headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+async function openApp(path) {
+  const router = createRouter({ history: createMemoryHistory(), routes })
+  await router.push(path)
+  await router.isReady()
+  wrapper = mount(App, { global: { plugins: [router] } })
+  return router
+}
+
+it('открывает диалог по внутреннему ID и сохраняет нумерацию всех реплик', async () => {
+  const item = { id: 'internal-1', externalId: 'dev-01', language: 'RU', channel: 'chat' }
+  const request = vi.fn()
+    .mockResolvedValueOnce(json({ data: [item], pagination: { totalPages: 1 } }))
+    .mockResolvedValueOnce(json({ data: { ...item, transcript: [
+      { speaker: 'system', text: 'Начало' }, { speaker: 'operator', text: 'Здравствуйте' },
+    ] } }))
+  vi.stubGlobal('fetch', request)
+  await openApp('/')
+  await vi.waitFor(() => expect(wrapper.text()).toContain('dev-01'))
+  await wrapper.get('a[href$="/dialogs/internal-1"]').trigger('click')
+  await vi.waitFor(() => expect(wrapper.find('#turn-2').exists()).toBe(true))
+  expect(wrapper.get('#turn-2').text()).toContain('Здравствуйте')
+  expect(request.mock.calls.map(([url]) => url)).toEqual([
+    '/api/conversations?page=1', '/api/conversations/internal-1',
+  ])
+})
+
+it('показывает ошибку API и повторяет загрузку списка', async () => {
+  vi.stubGlobal('fetch', vi.fn()
+    .mockResolvedValueOnce(json({ error: { message: 'Сервис недоступен' } }, 503))
+    .mockResolvedValueOnce(json({ data: [], pagination: { totalPages: 0 } })))
+  await openApp('/appeals')
+  await vi.waitFor(() => expect(wrapper.find('[role="alert"]').exists()).toBe(true))
+  await wrapper.get('button').trigger('click')
+  await vi.waitFor(() => expect(wrapper.text()).toContain('Апелляций пока нет.'))
+})
