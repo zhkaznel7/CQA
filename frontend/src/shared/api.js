@@ -15,6 +15,7 @@ async function requestJson(path, { signal, body, method }) {
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
     const error = new Error(payload?.error?.message || `Ошибка API (HTTP ${response.status})`)
+    error.details = payload?.error?.details
     error.code = payload?.error?.code
     throw error
   }

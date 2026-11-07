@@ -15,6 +15,19 @@ const busy = ref(false)
 const error = ref('')
 const controller = new AbortController()
 
+function evaluationError(cause) {
+  const keys = cause.details?.map(item => item.criterionKey).filter(Boolean).join(', ')
+  if (cause.code === 'AI_NA_UNCONFIRMED') {
+    return 'Модель выбрала N/A' + (keys ? ' по критериям ' + keys : '') +
+      '. Проверяющему нужно подтвердить условие по исходному диалогу для этой версии чек-листа. Оценка не сохранена.'
+  }
+  if (cause.code === 'AI_INVALID_EVIDENCE') {
+    return 'Цитата модели' + (keys ? ' по критерию ' + keys : '') +
+      ' не соответствует реплике или проверенному диапазону. Оценка не сохранена.'
+  }
+  return cause.message
+}
+
 async function run(action) {
   if (busy.value) return
   busy.value = true
@@ -22,7 +35,7 @@ async function run(action) {
   try {
     await action()
   } catch (cause) {
-    if (!controller.signal.aborted) error.value = cause.message
+    if (!controller.signal.aborted) error.value = evaluationError(cause)
   } finally {
     busy.value = false
   }

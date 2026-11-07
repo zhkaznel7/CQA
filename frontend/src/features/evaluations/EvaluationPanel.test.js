@@ -99,3 +99,16 @@ it('при повторной оценке показывает исходные
   expect(totals()).toEqual(['15 / 100', 'Нет данных'])
   expect(view.get('[role="alert"]').text()).toContain('Не удалось получить действующую оценку')
 })
+
+it('показывает номер критерия при неподтверждённом N/A', async () => {
+  const error = Object.assign(new Error('Unconfirmed'), {
+    code: 'AI_NA_UNCONFIRMED', details: [{ criterionKey: '03' }],
+  })
+  const service = { ...demoService, evaluate: vi.fn().mockRejectedValue(error) }
+  view = mount(ConversationCard, { props: { conversation, service } })
+  await flushPromises()
+  await view.get('button').trigger('click')
+  await flushPromises()
+  expect(view.get('[role="alert"]').text()).toContain('N/A по критериям 03')
+  expect(view.find('article').exists()).toBe(false)
+})
