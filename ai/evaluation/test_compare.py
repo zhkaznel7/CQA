@@ -79,5 +79,22 @@ class ScaleDistanceTests(unittest.TestCase):
         self.assertEqual(details[("p1-en-015", "06")]["scale_absolute_error"], 3)
 
 
+
+
+
+class BaselineTests(unittest.TestCase):
+    setUp = ComparisonTests.setUp
+    def test_before_after_keeps_actual_answers_and_explanations(self):
+        baseline = comparison.compare(self.labels, self.predictions, self.source)
+        self.predictions["p1-ru-001"]["results"][0]["answer"] = False
+        current = comparison.compare(self.labels, self.predictions, self.source)
+        rows = comparison.baseline_comparison(current, baseline)
+        changed = [r for r in rows if r["before"] != r["after"]]
+        self.assertEqual(len(changed), 1)
+        self.assertEqual(changed[0]["before"], "Да")
+        self.assertEqual(changed[0]["after"], "Нет")
+        self.assertIn("after_explanation", changed[0])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -56,3 +56,12 @@ test('twelve saved responses feed the Python comparison without provider calls',
   assert.equal(report.details.length,96);
   assert.ok(report.details.every(r=>r.status==='match'));
 }));
+test('targeted run stops after provider rejects shared request format', () => temporary(async outputDir => {
+  let calls=0;
+  const summary=await runBatch({inputs,outputDir,identity,stopOnRequestRejected:true,log:()=>{},
+    evaluate:async ()=>{calls++;throw Object.assign(Error('HTTP 400'),{status:502,code:'GEMINI_REQUEST_REJECTED'});}});
+  assert.equal(calls,1);
+  assert.equal(summary.called,1);
+  assert.equal(summary.savedErrors,1);
+  await assert.rejects(readFile(path.join(outputDir,'.run','two.json')),{code:'ENOENT'});
+}));

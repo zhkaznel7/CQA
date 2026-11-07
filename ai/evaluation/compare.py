@@ -223,12 +223,30 @@ def print_report(report):
         print("Техническая проверка:", json.dumps(issue, ensure_ascii=False))
 
 
+
+def baseline_comparison(current, baseline):
+    before = {(r["conversation_id"], r["criterion_id"]): r for r in baseline["details"]}
+    changes = []
+    for new in current["details"]:
+        old = before[(new["conversation_id"], new["criterion_id"])]
+        changes.append({
+            "conversation_id": new["conversation_id"], "criterion_id": new["criterion_id"],
+            "label_group": new["label_group"], "expected": new["expected"],
+            "before": old.get("actual"), "after": new.get("actual"),
+            "before_status": old["status"], "after_status": new["status"],
+            "before_explanation": old.get("actual_explanation", old.get("problem")),
+            "after_explanation": new.get("actual_explanation", new.get("problem"))
+        })
+    return changes
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--predictions", required=True, help="JSON-ответ, массив ответов или папка <conversation_id>.json")
     parser.add_argument("--labels", type=Path, default=HERE / "dev-12.manual.v1.json")
     parser.add_argument("--source", type=Path, default=HERE.parents[1] / "data/dev.json")
     parser.add_argument("--report", type=Path, help="Дополнительно сохранить полный JSON-отчёт")
+    parser.add_argument("--ids", help="Выбранные ID диалогов через запятую")
+    parser.add_argument("--baseline", type=Path, help="Ответы первого прогона для сравнения до/после")
     args = parser.parse_args()
     labels = load(args.labels)
     if hashlib.sha256(args.source.read_bytes()).hexdigest() != labels["source"]["sha256"]:
@@ -237,10 +255,24 @@ def main():
     if canonical_hash(snapshot) != labels["rubric"]["sha256"]:
         raise ValueError("снимок рубрики не совпадает с хешем разметки")
     source = {c["conversation_id"]: c for c in load(args.source)["data"]["records"]}
-    predictions = read_predictions(args.predictions, {c["conversation_id"] for c in labels["conversations"]})
+    expected_ids = {c["conversation_id"] for c in labels["conversations"]}
+    if args.ids:
+        selected = args.ids.split(",")
+        if not selected or len(set(selected)) != len(selected) or not set(selected) <= expected_ids:
+            raise ValueError("--ids содержит повторные или неизвестные ID")
+        labels = {**labels, "conversations": [c for c in labels["conversations"] if c["conversation_id"] in selected]}
+    predictions = read_predictions(args.predictions, expected_ids)
     report = compare(labels, predictions, source)
     report["labels_sha256"] = hashlib.sha256(args.labels.read_bytes()).hexdigest()
     print_report(report)
+    if args.baseline:
+        baseline = compare(labels, read_predictions(args.baseline, expected_ids), source)
+        report["baseline_comparison"] = baseline_comparison(report, baseline)
+        print("\nПервый прогон → новый прогон (спорные решения не означают доказанную ошибку):")
+        for r in report["baseline_comparison"]:
+            print(f"{r['conversation_id']} / {r['criterion_id']} [{r['label_group']}]: "
+                  f"{r['before'] or r['before_status']} → {r['after'] or r['after_status']}; "
+                  f"черновая разметка {r['expected']}")
     if args.report:
         args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
