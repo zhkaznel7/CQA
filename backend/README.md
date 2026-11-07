@@ -300,9 +300,11 @@ Scoring проверяется отдельно через `test:scoring` и т�
 
 ## Docker Desktop / PowerShell
 
-Фактические результаты текущей проверки и диагностика зависшего Docker Desktop:
-[docs/docker-stage7-check.md](docs/docker-stage7-check.md). Образы собраны, но старт
-контейнеров пока заблокирован; контейнерная интеграция не подтверждена.
+Финальная проверка работающего Docker-стека: **18 проверок успешно, 0 ошибок**,
+BUG-003 подтверждён для voice call/voice/call, оценки и апелляции сохраняются.
+Результаты, тестовые ID и подготовка официальных seed для демонстрации:
+[docs/docker-final-bug003.md](docs/docker-final-bug003.md).
+История прежнего сбоя Desktop: [docs/docker-stage7-check.md](docs/docker-stage7-check.md).
 
 Общий Compose находится в `backend/compose.yaml`: PostgreSQL 18, Backend и командный
 AI mock. Требуется запущенный Docker Desktop с Linux containers и Compose v2+ (включая v5).
