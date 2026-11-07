@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { databaseUrl } from './database-url.js';
+import { aiConfigSchema } from '../ai-client/ai-config.js';
 
 const positiveInteger = (defaultValue, max = Number.MAX_SAFE_INTEGER) =>
   z.coerce.number().int().positive().max(max).default(defaultValue);
@@ -10,6 +11,7 @@ const origin = z.string().url().refine((value) => {
 }, 'Use an exact HTTP(S) origin without a trailing slash');
 
 const schema = z.object({
+  ...aiConfigSchema.shape,
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().trim().min(1).default('127.0.0.1'),
   DATABASE_URL: z.string().url().refine((value) => {
@@ -34,6 +36,11 @@ const schema = z.object({
   IMPORT_TIMEOUT_MS: positiveInteger(10000, 60000),
   IMPORT_MAX_BYTES: positiveInteger(2097152, 10485760),
   IMPORT_MAX_RECORDS: positiveInteger(500, 1000),
+}).superRefine((value, context) => {
+  if (value.NODE_ENV === 'production' && (value.AI_MODE === 'mock' || value.AI_SERVICE_KIND === 'mock')
+    && value.AI_ALLOW_MOCK_IN_PRODUCTION !== 'true') {
+    context.addIssue({ code: 'custom', path: ['AI_MODE'], message: 'Production mock requires explicit AI_ALLOW_MOCK_IN_PRODUCTION=true' });
+  }
 });
 
 const result = schema.safeParse({ ...process.env, DATABASE_URL: databaseUrl() });

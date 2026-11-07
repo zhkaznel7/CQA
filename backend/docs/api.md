@@ -16,6 +16,19 @@ Details в ошибках валидации содержит только пу�
 | GET /api/checklists/:id | Конкретная версия с критериями | 200 |
 | POST /api/checklists | Новый ключ, версия 1 | 201 |
 | PUT /api/checklists/:id | Полная новая версия существующего ключа | 201 |
+| POST /api/evaluations | Оценить через AI/mock, проверить, рассчитать и сохранить | 201 / 200 повтор |
+| GET /api/evaluations/:id | Сохранённый результат с исходными ответами и scoring snapshot | 200 |
+| POST /api/appeals | Открыть PENDING-апелляцию | 201 |
+| GET /api/appeals | Список, пагинация и фильтр status | 200 |
+| GET /api/appeals/:id | Исходные данные, контекст и текущий итог | 200 |
+| PATCH /api/appeals/:id/decision | CONFIRM/CHANGE с обязательной reason | 200 |
+
+Контракт пересмотра: [appeals.md](appeals.md). criterionId — UUID ChecklistCriterion
+из результатов оценки, не key и не UUID CriterionResult.
+
+Контракт AI, Evaluations API и правила независимого подтверждения N/A:
+[evaluations.md](evaluations.md). Неполное начало записи звонка разрешает N/A для
+приветствия только в соответствующей новой версии, не в исходном PDF-чек-листе.
 
 ## Диалоги
 

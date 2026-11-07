@@ -1,10 +1,131 @@
-<<<<<<< HEAD
-# CQA Backend — этап 4
+# CQA Backend — этап 6
 
 Express + PostgreSQL + Prisma, JavaScript ES Modules. Требуется Node.js >= 22.13.0;
 Docker использует Node.js 24 LTS. Prisma Client, CLI и PostgreSQL adapter — 7.10.1.
-Реализованы Conversations API, Checklists API и независимый Scoring Engine.
-AI, Frontend, evaluations API и appeals API не реализованы.
+Реализованы Conversations API, Checklists API, Scoring Engine, Evaluations API и Appeals API.
+Интеграция AI использует согласованный HTTP-контракт или явный локальный mock.
+Реальный AI-сервис пока не проверен. Frontend и AI-модель не реализованы.
+
+## Appeals API и пересмотр
+
+Контракт, история и ограничения: [docs/appeals.md](docs/appeals.md).
+После `npm.cmd run db:generate` и `npm.cmd run db:migrate` доступны:
+
+- POST /api/appeals — создать PENDING по evaluationId + criterionId + comment.
+- GET /api/appeals — пагинация page/pageSize и фильтр status.
+- GET /api/appeals/:id — исходные данные, контекст, текущий итог и снимки решения.
+- PATCH /api/appeals/:id/decision — CONFIRM или CHANGE с обязательной reason.
+
+criterionId — UUID ChecklistCriterion из `evaluation.data.results[].criterionId`,
+не key (`01`) и не ID строки CriterionResult (`results[].id`). CONFIRM сохраняет текущий
+итог, CHANGE вызывает существующий calculateScore с учётом уже принятых изменений.
+Исходные Evaluation.score/aiResponse и CriterionResult не обновляются.
+Статусы БД сохранены: CONFIRM → REJECTED (отклонена апелляция), CHANGE → ACCEPTED.
+Для демонстрации reviewer необязателен (default demo-reviewer); аутентификации нет.
+
+После создания оценки из раздела ниже выполните в другом окне PowerShell:
+
+```powershell
+$base = 'http://127.0.0.1:3000'
+$saved = Invoke-RestMethod "$base/api/evaluations/$($evaluation.data.id)"
+$criterion = $saved.data.results | Where-Object criterionKey -eq '01'
+$body = @{ evaluationId = $saved.data.id; criterionId = $criterion.criterionId; comment = 'Прошу пересмотреть приветствие' } | ConvertTo-Json
+$appeal = Invoke-RestMethod "$base/api/appeals" -Method Post -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
+Invoke-RestMethod "$base/api/appeals?status=PENDING&page=1&pageSize=10"
+Invoke-RestMethod "$base/api/appeals/$($appeal.data.id)" | ConvertTo-Json -Depth 30
+$body = @{ decision = 'CHANGE'; value = $true; reason = 'Приветствие подтверждено исходной репликой'; reviewer = 'demo-reviewer' } | ConvertTo-Json
+Invoke-RestMethod "$base/api/appeals/$($appeal.data.id)/decision" -Method Patch -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) | ConvertTo-Json -Depth 30
+```
+
+Для N/A передайте CHANGE/isNa=true/naReason без value. Независимые подтверждения
+применимости этапа 5 обязательны. Грубая ошибка меняет grossError, не числовой итог.
+Повторное решение или дублирующая PENDING-апелляция — 409. Решения разных критериев
+одной оценки сериализуются блокировкой Evaluation.
+
+Тесты запускаются только на отдельной мигрированной PostgreSQL:
+
+```powershell
+$env:DATABASE_URL = 'postgresql://USER:URL_ENCODED_PASSWORD@127.0.0.1:5432/cqa_test'
+npm.cmd run db:migrate
+npm.cmd run test:appeals
+npm.cmd test
+Remove-Item Env:DATABASE_URL
+```
+
+Функциональные фикстуры откатываются. Конкурентные тесты оставляют собственные
+синтетические записи в изолированной БД для проверки двух независимых соединений.
+Проверено на cqa_stage6_test (PostgreSQL 18.6): 21 новый тест апелляций, полный
+набор 92/92 успешно, 0 ошибок. Все семь миграций применены; исходные оценки сохранены.
+
+## Evaluations и AI-контракт
+
+Полный контракт, исходные JSON-примеры, N/A-политика и список изменений:
+[docs/evaluations.md](docs/evaluations.md).
+
+После настройки DATABASE_URL (локальный PostgreSQL) выполните:
+
+```powershell
+Set-Location C:\Users\zhanel\CQA\backend
+npm.cmd ci
+npm.cmd run db:generate
+npm.cmd run db:migrate
+npm.cmd run db:seed:official
+npm.cmd run db:seed:call-na
+$env:AI_MODE = 'mock'
+npm.cmd run dev
+```
+
+`db:seed:official` сохраняет исходную PDF-версию v1. `db:seed:call-na` создаёт отдельную
+v2 с переданным командой дополнением организаторов о неполном начале записи звонка.
+Команды не переписывают существующие версии; при расхождении seed завершается ошибкой.
+
+В другом окне PowerShell:
+
+```powershell
+$base = 'http://127.0.0.1:3000'
+Invoke-RestMethod "$base/api/conversations/import" -Method Post -ContentType 'application/json' -Body '{}'
+$conversations = Invoke-RestMethod "$base/api/conversations?language=RU&pageSize=1"
+$versions = Invoke-RestMethod "$base/api/checklists?key=freedom-broker-chat-quality"
+$selected = $versions.data | Sort-Object version -Descending | Select-Object -First 1
+$body = @{ conversationId = $conversations.data[0].id; checklistId = $selected.id } | ConvertTo-Json
+$evaluation = Invoke-RestMethod "$base/api/evaluations" -Method Post -ContentType 'application/json' -Body $body
+$evaluation | ConvertTo-Json -Depth 30
+Invoke-RestMethod "$base/api/evaluations/$($evaluation.data.id)" | ConvertTo-Json -Depth 30
+```
+
+POST возвращает 201 при создании и 200/reused=true для уже завершённой пары диалог +
+версия. Повтор не вызывает AI и не перезаписывает результат. `provider=mock`, `isMock=true`
+и `transport=local` явно отмечают синтетическую оценку, не реальный анализ качества.
+
+После получения HTTP mock через Git переключите только конфигурацию:
+
+```powershell
+$env:AI_MODE = 'http'
+$env:AI_BASE_URL = 'http://localhost:8001'
+$env:AI_SERVICE_KIND = 'mock'
+npm.cmd run dev
+```
+
+Backend обращается к `POST /v1/evaluations`, без redirects, с таймаутом 100 секунд и
+лимитом ответа 2 MB. Для реального AI задайте AI_SERVICE_KIND=ai после его подключения.
+При ошибке HTTP-клиент не переключается на mock автоматически.
+В Docker адрес задаёт AI_DOCKER_BASE_URL, default `http://ai:8001`; сервис ai пока
+не добавлен в Compose. Для production mock требуется явное AI_ALLOW_MOCK_IN_PRODUCTION=true.
+
+Unit-проверки клиента не требуют БД:
+
+```powershell
+npm.cmd run test:ai
+```
+
+Полный набор запускайте на отдельной мигрированной базе с `test` в имени:
+
+```powershell
+$env:DATABASE_URL = 'postgresql://USER:URL_ENCODED_PASSWORD@127.0.0.1:5432/cqa_test'
+npm.cmd run db:migrate
+npm.cmd test
+Remove-Item Env:DATABASE_URL
+```
 
 ## Scoring Engine
 
@@ -243,16 +364,17 @@ CORS управляет доступом из браузера и не заме�
 `src/app.js` собирает приложение без открытия порта; `src/server.js` запускает сервер.
 `src/config` содержит конфигурацию, `src/routes` — общие маршруты,
 `src/middleware` — общую обработку запросов и ошибок.
-`src/modules`, `src/ai-client` и `src/database` подготовлены для будущих этапов.
+`src/modules` содержит API и scoring; `src/ai-client` — HTTP/mock-клиенты,
+`src/database` — общий Prisma Client.
 Ошибки возвращаются в формате `{ "error": { "code": "...", "message": "..." } }`.
 Трассировки ошибок не отправляются клиенту.
 `src/database/client.js` экспортирует один Prisma Client с пулом до пяти соединений.
 Модели: `prisma/schema.prisma`; миграции: `prisma/migrations`.
 Схема и правила чтения итоговых баллов: [docs/database.md](docs/database.md).
-=======
-# Backend
+## Роль Backend в команде
 
 Участник 1 отвечает за импорт диалогов, HTTP API, хранение результатов, очередь задач и серверную часть апелляций.
 
-При оценке диалога сервер передаёт транскрипт и выбранную версию чек-листа в модуль [ai](../ai/). Когда проверяющий меняет оценку, сервер использует ту же функцию расчёта баллов и сохраняет исходный и финальный результаты.
->>>>>>> origin/feat/scoring
+При оценке диалога сервер передаёт транскрипт и выбранную версию чек-листа в сервис
+[ai](../ai/) по HTTP. Очередь задач относится к будущим этапам. Appeals API использует
+ту же функцию scoring с сохранением исходного результата. Папка ai не изменялась.

@@ -10,8 +10,11 @@ import { prisma } from './database/client.js';
 import { conversationsRouter } from './modules/conversations/conversations.routes.js';
 import { createConversationSource } from './modules/conversations/organizer-client.js';
 import { checklistsRouter } from './modules/checklists/checklists.routes.js';
+import { evaluationsRouter } from './modules/evaluations/evaluations.routes.js';
+import { createAiClient } from './ai-client/index.js';
+import { appealsRouter } from './modules/appeals/appeals.routes.js';
 
-export function createApp({ database = prisma, loadConversations = createConversationSource(env) } = {}) {
+export function createApp({ database = prisma, loadConversations = createConversationSource(env), aiClient = createAiClient(env) } = {}) {
   const app = express();
 
   app.disable('x-powered-by');
@@ -37,6 +40,8 @@ export function createApp({ database = prisma, loadConversations = createConvers
   app.use('/api/health', healthRouter);
   app.use('/api/conversations', conversationsRouter(database, loadConversations, env.IMPORT_MAX_RECORDS));
   app.use('/api/checklists', checklistsRouter(database));
+  app.use('/api/evaluations', evaluationsRouter(database, aiClient));
+  app.use('/api/appeals', appealsRouter(database));
   app.use(notFound);
   app.use(errorHandler);
   return app;

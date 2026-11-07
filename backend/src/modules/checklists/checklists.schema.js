@@ -15,6 +15,10 @@ export const criterionSchema = z.object({
   allowNa: z.boolean().default(false),
   naCondition: text(2000).nullable().default(null),
   sectionKey: key,
+  applicabilityRule: z.object({
+    kind: z.literal('recording_start_missing'),
+    channels: z.array(z.enum(['voice', 'call'])).min(1).max(2).refine((value) => new Set(value).size === value.length),
+  }).strict().nullable().optional(),
 }).strict().superRefine((value, context) => {
   const invalid = (path, message) => context.addIssue({ code: 'custom', path: [path], message });
   if (value.type === 'flag') {
@@ -30,6 +34,7 @@ export const criterionSchema = z.object({
   } else if (value.scaleSteps.length) invalid('scaleSteps', 'Only scale criteria have steps');
   if (value.allowNa && value.naCondition === null) invalid('naCondition', 'N/A requires a condition');
   if (!value.allowNa && value.naCondition !== null) invalid('naCondition', 'N/A is disabled');
+  if (value.applicabilityRule && (!value.allowNa || value.type !== 'boolean')) invalid('applicabilityRule', 'Recording rule requires an N/A-enabled boolean criterion');
 });
 
 const body = z.object({

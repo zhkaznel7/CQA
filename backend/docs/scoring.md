@@ -118,16 +118,17 @@ criteria.points/maxPoints/basePoints и sections.points/maxPoints — число
 `ScoringError` имеет code и details без исходных текстов диалога:
 INVALID_CHECKLIST, INVALID_ANSWERS, UNKNOWN_CRITERION, DUPLICATE_ANSWER,
 INCOMPLETE_ANSWERS, NA_NOT_ALLOWED, INVALID_SCALE_VALUE, INVALID_BOOLEAN_VALUE.
-Модуль evaluations в будущем сможет преобразовать их в API-ошибки; сейчас новых
-HTTP endpoints нет. Поля результата не следует напрямую записывать в старый
+На этапе 5 модуль evaluations вызывает движок после проверки AI-контракта и
+независимых подтверждений N/A: [evaluations.md](evaluations.md).
+Математический движок остаётся независимым от HTTP/БД/AI. Поля результата не следует напрямую записывать в старый
 CriterionResult.points: там максимум соответствует сырой шкале (например boolean=1),
 а scoring.criteria.points — уже взвешенный и перераспределённый вклад из 100.
 Исходный ответ сохранён в criteria.value для явного преобразования будущим сервисом.
 
 Исторические SQL views EvaluationTotals/EffectiveCriterionResult остались без изменений:
 они показывают сырые суммы этапа 2, а не новый нормализованный scoring.
-Для будущего пересмотра нужно вызвать эту же функцию с зафиксированной версией
-чек-листа и новым набором ответов, сохранить новый результат отдельно от исходного.
+На этапе 6 [Appeals API](appeals.md) вызывает эту же функцию с зафиксированной версией
+чек-листа и текущими ответами, сохраняет beforeScore/afterScore отдельно в Appeal.
 Сам движок ничего не сохраняет и не пересчитывает старые оценки автоматически.
 
 ## Проверка в PowerShell

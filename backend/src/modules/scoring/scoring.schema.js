@@ -51,6 +51,7 @@ export function parseChecklist(input) {
         key: criterion.key, name: criterion.name, description: config.description,
         type: config.type, weight: config.weight, scaleSteps: config.scaleSteps,
         allowNa: config.allowNa, naCondition: config.naCondition, sectionKey: config.sectionKey,
+        applicabilityRule: config.applicabilityRule,
       };
     }),
   };

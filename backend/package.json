@@ -20,7 +20,12 @@
     "test:api": "node --env-file-if-exists=.env --test --test-concurrency=1 tests/api.test.js",
     "test:scoring": "node --test tests/scoring.test.js",
     "test": "node --env-file-if-exists=.env --test --test-concurrency=1 tests/*.test.js",
-    "db:seed:official": "node --env-file-if-exists=.env scripts/seed-official-checklist.js"
+    "db:seed:official": "node --env-file-if-exists=.env scripts/seed-official-checklist.js",
+    "db:seed:call-na": "node --env-file-if-exists=.env scripts/seed-call-na-version.js",
+    "na:confirm": "node --env-file-if-exists=.env scripts/confirm-na.js",
+    "test:ai": "node --test tests/ai-client.test.js",
+    "test:evaluations": "node --env-file-if-exists=.env --test tests/evaluations.test.js",
+    "test:appeals": "node --env-file-if-exists=.env --test --test-concurrency=1 tests/appeals*.test.js"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

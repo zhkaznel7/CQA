@@ -8,6 +8,8 @@ erDiagram
     Evaluation ||--o{ CriterionResult : contains
     ChecklistCriterion ||--o{ CriterionResult : measured
     CriterionResult ||--o{ Appeal : reviewed
+    Conversation ||--o{ ApplicabilityConfirmation : verified
+    ChecklistCriterion ||--o{ ApplicabilityConfirmation : applicability
 ```
 
 | Таблица | Назначение |
@@ -18,6 +20,17 @@ erDiagram
 | Evaluation | Оценка диалога по одной версии чек-листа, DRAFT или COMPLETED. |
 | CriterionResult | Исходные баллы / N/A, объяснение и доказательства по критерию. |
 | Appeal | Комментарий, PENDING/ACCEPTED/REJECTED, проверяющий, причина решения и пересмотренные баллы / N/A. |
+| ApplicabilityConfirmation | Независимое подтверждение N/A для диалога, версии и критерия; источник и проверяющий. |
+
+Этап 5 добавляет nullable Evaluation.provider/transport/score/aiResponse и
+CriterionResult.answer/checkedRange/naReason без переписывания старых записей.
+score хранит нормализованный результат Scoring Engine, points сохраняет прежнее
+значение сырой шкалы. Полный исходный AI-ответ остаётся в aiResponse.
+Подтверждения N/A неизменяемы; публичной записи через HTTP нет.
+Миграция 006 и контракт хранения описаны в [evaluations.md](evaluations.md).
+Миграция 007 добавляет Appeal.decision/revisedAnswer/revisedNaReason/beforeScore/afterScore.
+Решение и снимки пересчёта сохраняются в Appeal, исходная Evaluation не обновляется.
+CONFIRM соответствует REJECTED, CHANGE — ACCEPTED. Контракт этапа 6: [appeals.md](appeals.md).
 
 ## Версии и ограничения
 
