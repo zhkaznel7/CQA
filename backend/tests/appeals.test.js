@@ -198,15 +198,16 @@ test('Appeals API: history, validation, recalculation, context and atomic rollba
         assert.equal(response.body.data.currentResult.value, true);
       });
 
-      await t.test('greeting rule: v2 voice/call needs missing-start proof, chat still cannot use N/A', async () => {
-        for (const channel of ['voice', 'chat']) {
+      await t.test('greeting rule: v2 call aliases need missing-start proof; text channels cannot use N/A', async () => {
+        for (const channel of ['voice', 'call', 'voice call', 'chat', 'agent chat', 'email']) {
           const call = await fixture({ channel, amended: true });
           const pending = await open(call, '01');
           const input = { decision: 'CHANGE', isNa: true, naReason: 'Synthetic recording starts mid-call', reason: 'Reviewed source recording metadata' };
           assert.equal((await decide(pending, input)).status, 422);
           await confirmNa(call, '01', 'recording_start_missing');
           const response = await decide(pending, input);
-          assert.equal(response.status, channel === 'voice' ? 200 : 422);
+          assert.equal(response.status, ['voice', 'call', 'voice call'].includes(channel) ? 200 : 422, channel);
+          assert.equal((await request(`/api/conversations/${call.conversation.id}`)).body.data.channel, channel);
         }
       });
 

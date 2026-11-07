@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { createApp } from '../src/app.js';
 import { env } from '../src/config/env.js';
 import { prisma } from '../src/database/client.js';
 import { createMockAiClient } from '../src/ai-client/mock-client.js';
+import { createAiClient } from '../src/ai-client/index.js';
 import { checklistService } from '../src/modules/checklists/checklists.service.js';
 import { createChecklistSchema, versionChecklistSchema } from '../src/modules/checklists/checklists.schema.js';
 
@@ -46,7 +50,7 @@ test('Evaluations API, persistence, rollback, dynamic versions and explicit N/A 
         } });
       }
       const database = transactionView(tx);
-      const aiClient = { source: 'mock', transport: 'local', async evaluate(request) {
+      const aiClient = { source: 'mock', get transport() { return activeClient.transport; }, async evaluate(request) {
         calls++;
         lastRequest = structuredClone(request);
         lastResponse = await activeClient.evaluate(request);
@@ -137,16 +141,97 @@ test('Evaluations API, persistence, rollback, dynamic versions and explicit N/A 
         assert.equal(await tx.evaluation.count({ where: item.input }), 0);
       });
 
-      await t.test('greeting N/A succeeds only for explicit rule + call/voice + recording-start confirmation', async () => {
-        for (const [channel, hasFact, expected] of [['voice', false, 502], ['call', true, 201], ['chat', true, 502]]) {
+      await t.test('greeting N/A succeeds only for call aliases + explicit rule + recording-start confirmation', async () => {
+        for (const [channel, hasFact, expected] of [
+          ['voice', false, 502], ['voice', true, 201], ['call', false, 502], ['call', true, 201],
+          ['voice call', false, 502], ['voice call', true, 201], ['chat', true, 502], ['agent chat', true, 502], ['email', true, 502],
+        ]) {
           const item = await fixture({ channel, amended: true });
           if (hasFact) await confirm(item, '01', 'recording_start_missing');
           activeClient = createMockAiClient({ overrides: { '01': { na: true, answer: null, na_reason: 'Synthetic recording starts mid-call' } } });
           const response = await request('/api/evaluations', item.input);
-          assert.equal(response.status, expected);
+          assert.equal(response.status, expected, `${channel}, confirmed=${hasFact}`);
+          assert.equal((await request(`/api/conversations/${item.conversation.id}`)).body.data.channel, channel);
+          if (expected === 502) {
+            assert.equal(response.body.error.code, 'AI_NA_UNCONFIRMED');
+            assert.equal(await tx.evaluation.count({ where: item.input }), 0);
+          }
         }
         const old = await fixture({ channel: 'voice' }); await confirm(old, '01', 'recording_start_missing');
         assert.equal((await request('/api/evaluations', old.input)).status, 502);
+      });
+
+      const teamMock = new URL('../../ai/mock-server.mjs', import.meta.url);
+      await t.test('BUG-003: actual team HTTP mock accepts stored voice call, preserves source and enforces v2 N/A proof', {
+        skip: !existsSync(teamMock) && 'Team mock source is not present in this Backend-only checkout',
+      }, async () => {
+        const child = spawn(process.execPath, [fileURLToPath(teamMock)], {
+          env: { ...process.env, HOST: '127.0.0.1', PORT: '0', MOCK_ERROR_STATUS: '' },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        try {
+          const origin = await new Promise((resolve, reject) => {
+            let output = '';
+            const timer = setTimeout(() => reject(new Error('Team HTTP mock did not become ready')), 10000);
+            const fail = () => { clearTimeout(timer); reject(new Error('Team HTTP mock failed to start')); };
+            child.once('error', fail); child.once('exit', fail);
+            child.stderr.resume();
+            child.stdout.on('data', (chunk) => {
+              output += chunk;
+              const match = /CQA mock on port (\d+)/.exec(output);
+              if (match) { clearTimeout(timer); resolve(`http://127.0.0.1:${match[1]}`); }
+            });
+          });
+          activeClient = createAiClient({ AI_MODE: 'http', AI_SERVICE_KIND: 'mock', AI_BASE_URL: origin });
+          async function versioned(channel, missingStart = true) {
+            const item = await fixture({ channel });
+            const body = structuredClone(item.body); delete body.key;
+            Object.assign(body.criteria[0], { allowNa: true, naCondition: amendment.naCondition, applicabilityRule: amendment.applicabilityRule });
+            const version = await checklistService(database).version(item.checklist.id, versionChecklistSchema.parse(body));
+            assert.equal(version.version, 2);
+            if (missingStart) await tx.conversation.update({ where: { id: item.conversation.id }, data: { transcript: [
+              { turnIndex: 0, timestamp: '00:00:00.000', speaker: 'system', text: 'Начало записи отсутствует: запись началась после приветствия оператора.' },
+              { turnIndex: 1, timestamp: '00:00:01.250', speaker: 'client', text: 'Synthetic client request' },
+              { turnIndex: 2, timestamp: '00:00:02.500', speaker: 'operator', text: 'Synthetic operator reply' },
+            ] } });
+            return { ...item, previous: item.checklist, checklist: version, input: { conversationId: item.conversation.id, checklistId: version.id } };
+          }
+          for (const channel of ['voice call', 'voice', 'call']) {
+            const item = await versioned(channel);
+            const rejected = await request('/api/evaluations', item.input);
+            assert.equal(rejected.status, 502); assert.equal(rejected.body.error.code, 'AI_NA_UNCONFIRMED');
+            assert.equal(await tx.evaluation.count({ where: item.input }), 0);
+            await confirm(item, '01', 'recording_start_missing');
+            const response = await request('/api/evaluations', item.input);
+            assert.equal(response.status, 201, channel); assert.equal(response.body.data.transport, 'http');
+            assert.equal(response.body.data.score.total, 38.89); assert.equal(lastRequest.channel, 'voice call');
+            const greeting = response.body.data.results.find((result) => result.criterionKey === '01');
+            assert.equal(greeting.isNa, true); assert.equal(greeting.answer, null); assert.equal(greeting.evidence[0].turnIndex, 0);
+            assert.deepEqual((await request(`/api/evaluations/${response.body.data.id}`)).body.data, response.body.data);
+            assert.equal((await request(`/api/conversations/${item.conversation.id}`)).body.data.channel, channel);
+            assert.equal((await tx.conversation.findUniqueOrThrow({ where: { id: item.conversation.id } })).channel, channel);
+            const previous = await request('/api/evaluations', { ...item.input, checklistId: item.previous.id });
+            assert.equal(previous.status, 201); assert.equal(previous.body.data.score.total, 35);
+            assert.equal(previous.body.data.results[0].isNa, false);
+            const before = calls; const repeat = await request('/api/evaluations', item.input);
+            assert.equal(repeat.status, 200); assert.deepEqual(repeat.body.data, response.body.data); assert.equal(calls, before);
+          }
+          for (const channel of ['agent chat', 'chat']) {
+            const item = await versioned(channel); await confirm(item, '01', 'recording_start_missing');
+            const response = await request('/api/evaluations', item.input);
+            assert.equal(response.status, 201); assert.equal(response.body.data.results[0].isNa, false);
+            assert.equal(response.body.data.score.total, 35);
+          }
+          const ordinary = await versioned('voice call', false);
+          const response = await request('/api/evaluations', ordinary.input);
+          assert.equal(response.status, 201); assert.equal(response.body.data.results[0].isNa, false);
+          assert.equal(response.body.data.score.total, 35);
+        } finally {
+          activeClient = createMockAiClient();
+          if (child.exitCode === null && child.signalCode === null) {
+            const exited = once(child, 'exit'); child.kill(); await exited;
+          }
+        }
       });
 
       await t.test('bad AI steps, evidence, missing/duplicate criteria and mock errors do not save partial data', async () => {

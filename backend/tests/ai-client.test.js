@@ -184,3 +184,30 @@ test('v2 greeting N/A requires the configured call channel AND verified missing 
   const old = structuredClone(response); old.checklist_version = 1;
   assert.throws(() => validateAiResponse(old, conversation, checklist, facts), bad('AI_NA_UNCONFIRMED'));
 });
+
+test('BUG-003: voice call, voice and call share greeting N/A semantics without mutating channel', async () => {
+  const amendment = JSON.parse(readFileSync(new URL('../prisma/seed/call-na-amendment.json', import.meta.url), 'utf8'));
+  const v2 = structuredClone(checklist); v2.version = 2;
+  Object.assign(v2.criteria[0], { allowNa: true, naCondition: amendment.naCondition, applicabilityRule: amendment.applicabilityRule });
+  for (const channel of ['voice call', 'voice', 'call']) {
+    const source = Object.freeze({ ...conversation, channel });
+    const response = await createMockAiClient({ overrides: {
+      '01': { answer: null, na: true, na_reason: 'Independently verified missing recording start' },
+      '04': { answer: 20 }, '06': { answer: 10 },
+    } }).evaluate(buildAiRequest(source, v2));
+    const facts = [confirmation('01', 'recording_start_missing', source, v2)];
+    const { answers } = validateAiResponse(response, source, v2, facts);
+    assert.equal(calculateScore(v2, answers).total, 38.89, channel);
+    assert.equal(source.channel, channel);
+    assert.throws(() => validateAiResponse(response, source, v2, []), bad('AI_NA_UNCONFIRMED'));
+    assert.throws(() => validateAiResponse(response, source, v2,
+      [confirmation('01', 'verified_condition', source, v2)]), bad('AI_NA_UNCONFIRMED'));
+    for (const textChannel of ['agent chat', 'chat', 'email', 'sms', 'unknown']) {
+      assert.throws(() => validateAiResponse(response, { ...source, channel: textChannel }, v2, facts), bad('AI_NA_UNCONFIRMED'));
+    }
+    for (const channels of [['voice'], ['call']]) {
+      const sameRule = structuredClone(v2); sameRule.criteria[0].applicabilityRule.channels = channels;
+      validateAiResponse(response, source, sameRule, facts);
+    }
+  }
+});

@@ -2,16 +2,11 @@ import { ApiError } from '../../middleware/api-error.js';
 import { aiResponseSchema } from './evaluations.schema.js';
 import { confirmApplicability } from './applicability.js';
 import { toAiTranscript } from '../../ai-client/transcript-adapter.js';
-
-// Team AI wire vocabulary. Keep stored channels intact for applicability rules.
-const aiChannels = new Map([
-  ['chat', 'agent chat'], ['agent chat', 'agent chat'],
-  ['voice', 'voice call'], ['call', 'voice call'], ['voice call', 'voice call'],
-]);
+import { canonicalChannel } from '../conversations/channels.js';
 
 export function buildAiRequest(conversation, checklist) {
   return {
-    conversation_id: conversation.id, channel: aiChannels.get(conversation.channel) ?? conversation.channel, language: conversation.language,
+    conversation_id: conversation.id, channel: canonicalChannel(conversation.channel), language: conversation.language,
     transcript: toAiTranscript(conversation.transcript),
     checklist: {
       id: checklist.id, key: checklist.key, version: checklist.version, name: checklist.name,
