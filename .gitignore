@@ -1,0 +1,12 @@
+node_modules/
+__pycache__/
+.venv/
+
+.env
+.env.*
+!.env.example
+
+runtime/
+dist/
+coverage/
+*.log
