@@ -74,7 +74,7 @@ def same_value(left, right):
     return type(left) is type(right) and left == right
 
 
-def convert(record, response, scored, mapping):
+def convert(record, response, scored, mapping, dataset=None):
     cid = record["conversation_id"]
     if response is None:
         return error_row(cid, "Оценка системы для диалога не получена.")
@@ -100,6 +100,11 @@ def convert(record, response, scored, mapping):
             if code is None or code in by_code:
                 raise ValueError("Неизвестный или повторный код критерия.")
             kind, allow_na, levels = OFFICIAL[code]
+            # Organizer clarification (2026-11-08): contact=null is accepted
+            # for DEV calls with missing recording start. Applicability and
+            # score confirmation still come from the saved Backend result.
+            if code == "contact" and dataset == "dev" and record.get("channel") == "voice call":
+                allow_na = True
             na, value = row.get("na"), row.get("answer")
             if type(na) is not bool or (na and (value is not None or not allow_na)):
                 raise ValueError("N/A не соответствует таблице сдачи для " + code + ".")
@@ -185,7 +190,7 @@ def export(source, dataset, responses, scores, team, model, mode="external_api",
     if mode not in ["local", "external_api", "hybrid"]:
         raise ValueError("Недопустимый mode модели")
     return {"schema_version": "1.0", "team_name": team, "model": {"mode": mode, "name": model},
-            "results": [convert(c, responses.get(c["conversation_id"]), scores.get(c["conversation_id"]), mapping)
+            "results": [convert(c, responses.get(c["conversation_id"]), scores.get(c["conversation_id"]), mapping, dataset=dataset)
                         for c in records]}
 
 

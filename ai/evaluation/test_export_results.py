@@ -28,8 +28,8 @@ class ExportTests(unittest.TestCase):
                        "score": {"total": 73.5, "grossError": True, "criteria": [
                            {"key": r["criterion_id"], "value": r["answer"], "isNa": r["na"]} for r in rows]}}
 
-    def convert(self):
-        return exporter.convert(self.records[0], self.response, self.scored, exporter.DEFAULT_MAP)
+    def convert(self, dataset=None):
+        return exporter.convert(self.records[0], self.response, self.scored, exporter.DEFAULT_MAP, dataset=dataset)
 
     def test_exact_keys_one_based_indices_and_backend_score_preserved(self):
         row = self.convert()
@@ -62,11 +62,54 @@ class ExportTests(unittest.TestCase):
         self.response["results"][0]["checked_range"] = {"start": 0, "end": 3}
         self.assertEqual(self.convert()["criteria"][0]["evidence_turns"], [1, 2, 3, 4])
 
-    def test_call_contact_na_is_flagged_as_format_conflict_not_false(self):
+    def test_chat_contact_na_is_rejected_not_replaced_by_false(self):
         self.response["results"][0].update(answer=None, na=True, na_reason="Обрезанный звонок")
         row = self.convert()
         self.assertEqual(row["status"], "error")
         self.assertIn("contact", row["error"])
+
+    def contact_na(self):
+        self.records[0]["channel"] = "voice call"
+        self.records[0]["transcript"][3]["text"] = "Начало записи отсутствует."
+        self.response["results"][0].update(
+            answer=None, na=True, na_reason="Начало записи отсутствует: приветствие не попало в запись.",
+            explanation="Системное событие подтверждает пропущенное начало.",
+            evidence=[{"turnIndex": 3, "quote": "Начало записи отсутствует."}])
+        self.scored["score"]["criteria"][0].update(value=None, isNa=True)
+        self.scored["score"]["total"] = 38.89
+
+    def test_dev_voice_contact_null_keeps_reason_and_backend_score(self):
+        self.contact_na()
+        row = self.convert(dataset="dev")
+        self.assertEqual(row["status"], "ok")
+        contact = row["criteria"][0]
+        self.assertEqual(contact["criterion_id"], "contact")
+        self.assertIsNone(contact["value"])
+        self.assertIn("приветствие не попало", contact["rationale"])
+        self.assertEqual(contact["evidence_turns"], [4])
+        self.assertEqual(row["score"]["final_score"], 38.89)
+
+    def test_dev_export_propagates_voice_exception_but_chat_and_prod_do_not(self):
+        self.contact_na()
+        records = [copy.deepcopy(self.records[0])]
+        for i in range(1, 65):
+            records.append({**copy.deepcopy(self.records[1]), "conversation_id": f"dev-{i}"})
+        result = exporter.export({"data": {"records": records}}, "dev",
+                                 {"prod-0": self.response}, {"prod-0": self.scored}, "Team", "fixture-only")
+        self.assertEqual(result["results"][0]["status"], "ok")
+        self.assertIsNone(result["results"][0]["criteria"][0]["value"])
+        self.assertEqual(len(result["results"]), 65)
+        self.assertEqual(self.convert(dataset="prod")["status"], "error")
+        self.records[0]["channel"] = "agent chat"
+        self.assertEqual(self.convert(dataset="dev")["status"], "error")
+
+    def test_dev_voice_na_still_requires_reason_and_matching_backend_score(self):
+        self.contact_na()
+        self.response["results"][0]["na_reason"] = ""
+        self.assertEqual(self.convert(dataset="dev")["status"], "error")
+        self.contact_na()
+        self.scored["score"]["criteria"][0].update(value=True, isNa=False)
+        self.assertEqual(self.convert(dataset="dev")["status"], "error")
 
     def test_score_must_match_answers_version_and_critical_flag(self):
         for mutate in [
