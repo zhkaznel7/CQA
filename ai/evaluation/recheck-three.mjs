@@ -1,10 +1,12 @@
-import {appendFileSync, existsSync, writeFileSync} from 'node:fs';
+import {appendFileSync, existsSync} from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 import {planInput, runBatch} from './run-once.mjs';
-import {evaluateGemini, PROMPT_VERSION} from '../gemini.mjs';
+import {evaluateGemini, PROMPT_VERSION, DEFAULT_MODEL} from '../gemini.mjs';
+import {recordingRequest} from './provider-artifacts.mjs';
+import {isMain} from './cli.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const IDS = ['p1-ru-025', 'p1-en-015', 'p1-en-014'];
@@ -44,7 +46,7 @@ async function main() {
   const inputs = selectThree(allInputs, single);
   const outputDir = path.join(here, selection.directory);
   const baselineDir = path.join(here, 'predictions');
-  const model = 'gemini-3.5-flash-lite';
+  const model = DEFAULT_MODEL;
   const identity = {schema_version: 1, ...provenance, model, fast: false,
     prompt_version: PROMPT_VERSION, conversation_ids: ids};
   for (const cid of ids) {
@@ -67,15 +69,9 @@ async function main() {
     !existsSync(path.join(outputDir, '.run', cid + '.json')));
   if (pending && !key) throw Error('Задайте GEMINI_API_KEY в этом терминале. Запросов ещё не было.');
   const summary = await runBatch({inputs, outputDir, identity, stopOnRequestRejected: true, evaluate: input =>
-    evaluateGemini(input, {key, model, request: async (url, init) => {
-      const response = await fetch(url, init);
-      return {status: response.status, ok: response.ok, headers: response.headers,
-        text: async () => {
-          const payload = await response.text();
-          if (response.ok) writeFileSync(path.join(outputDir, '.run', 'provider-response.json'), payload, {mode: 0o600});
-          return payload;
-        }};
-    }, onEvent: event => {
+    evaluateGemini(input, {key, model,
+      request: recordingRequest({outputDir, key, conversationId: inputs.length === 1 ? '' : input.conversation_id}),
+      onEvent: event => {
       appendFileSync(path.join(outputDir, '.run', 'diagnostics.log'),
         JSON.stringify({timestamp: new Date().toISOString(), conversation_id: input.conversation_id, model, ...event}) + String.fromCharCode(10));
     }})});
@@ -84,8 +80,10 @@ async function main() {
     '--predictions', outputDir, '--ids', ids.join(','), '--baseline', baselineDir,
     '--report', path.join(here, selection.report)], {stdio: 'inherit'});
   if (result.status !== 0) throw Error('Не удалось завершить сравнение; ответы сохранены, отправлять их повторно не нужно.');
+  // A generated comparison report does not make a failed provider request successful.
+  if (summary.savedErrors || summary.interrupted) process.exitCode = 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   main().catch(error => {console.error(error.message); process.exitCode = 1;});
 }

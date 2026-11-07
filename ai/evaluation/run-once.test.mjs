@@ -29,7 +29,9 @@ test('one call per conversation; saved success AND error never retried', () => t
     return [];
   }};
   assert.equal((await runBatch(options)).called,2);
-  assert.equal((await runBatch(options)).called,0);
+  const repeated = await runBatch(options);
+  assert.equal(repeated.called,0);
+  assert.equal(repeated.savedErrors,1);
   assert.equal(calls,2);
   assert.equal(JSON.parse(await readFile(path.join(outputDir,'two.json'))).error.code,'AI_UNAVAILABLE');
 }));
@@ -74,4 +76,9 @@ test('targeted run stops after provider rejects shared request format', () => te
   assert.equal(summary.called,1);
   assert.equal(summary.savedErrors,1);
   await assert.rejects(readFile(path.join(outputDir,'.run','two.json')),{code:'ENOENT'});
+  const repeated=await runBatch({inputs,outputDir,identity,stopOnRequestRejected:true,log:()=>{},
+    evaluate:async ()=>{calls++;assert.fail('A cached shared rejection must stop all remaining requests');}});
+  assert.equal(repeated.called,0);
+  assert.equal(repeated.savedErrors,1);
+  assert.equal(calls,1);
 }));

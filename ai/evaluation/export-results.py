@@ -51,9 +51,13 @@ def read_responses(path, ids):
 
 
 def validate_source(source, dataset):
+    if "isSuccess" in source and source["isSuccess"] is not True:
+        raise ValueError("Источник API не подтверждает успешное получение набора")
     records = source.get("data", {}).get("records")
     if not isinstance(records, list) or len(records) != (65 if dataset == "dev" else 10):
         raise ValueError("Нужно 65 исходных записей для dev или 10 для prod")
+    if "total_records" in source["data"] and source["data"]["total_records"] != len(records):
+        raise ValueError("total_records не совпадает с размером набора")
     ids = [c.get("conversation_id") for c in records]
     if any(not isinstance(cid, str) or not cid.strip() for cid in ids) or len(set(ids)) != len(ids):
         raise ValueError("Исходные conversation_id должны быть непустыми и уникальными")
@@ -208,6 +212,7 @@ def main():
     parser.add_argument("--mode", default="external_api", choices=["local", "external_api", "hybrid"])
     parser.add_argument("--criterion-map", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--overwrite", action="store_true", help="Явно разрешить замену ранее сохранённой выгрузки")
     args = parser.parse_args()
     source = load(args.source)
     records = validate_source(source, args.dataset)
@@ -217,6 +222,8 @@ def main():
     result = export(source, args.dataset, responses, scores, args.team, args.model, args.mode,
                     load(args.criterion_map) if args.criterion_map else None)
     output = args.output or HERE.parents[1] / "results" / args.dataset / "results.json"
+    if output.exists() and not args.overwrite:
+        raise ValueError("Файл уже существует; выберите другой --output или явно задайте --overwrite")
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")

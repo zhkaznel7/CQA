@@ -1,10 +1,12 @@
 import {createHash} from 'node:crypto';
-import {existsSync, readFileSync} from 'node:fs';
+import {existsSync, readFileSync, appendFileSync} from 'node:fs';
 import {mkdir, open, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {evaluateGemini, EVALUATOR_SHA256} from '../gemini.mjs';
+import {evaluateGemini, EVALUATOR_SHA256, DEFAULT_MODEL} from '../gemini.mjs';
+import {recordingRequest} from './provider-artifacts.mjs';
+import {isMain} from './cli.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const hash = data => createHash('sha256').update(data).digest('hex');
@@ -73,7 +75,13 @@ export async function runBatch({inputs, outputDir, identity, evaluate, log = con
       const attemptFile = path.join(state, cid + '.json');
       if (existsSync(resultFile)) {
         summary.skipped++;
+        const saved = JSON.parse(await readFile(resultFile, 'utf8'));
+        if (saved.error) summary.savedErrors++;
         log('Пропуск сохранённого: ' + cid);
+        if (stopOnRequestRejected && saved.error?.code === 'GEMINI_REQUEST_REJECTED') {
+          log('Сохранённый отказ Google блокирует оставшиеся запросы этого запуска.');
+          break;
+        }
         continue;
       }
       let marker;
@@ -121,7 +129,7 @@ async function main() {
   const args = process.argv.slice(2);
   if (args.some(a => a !== '--dry-run')) throw Error('Допустимый параметр: --dry-run');
   const {inputs, ...provenance} = planInput();
-  const model = process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite';
+  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
   const outputDir = path.join(here, 'predictions');
   const identity = {schema_version: 1, ...provenance, model, fast: process.env.GEMINI_FAST === '1',
     conversation_ids: inputs.map(i => i.conversation_id)};
@@ -142,14 +150,19 @@ async function main() {
   const hasPending = inputs.some(i => !existsSync(path.join(outputDir, i.conversation_id + '.json')) &&
     !existsSync(path.join(outputDir, '.run', i.conversation_id + '.json')));
   if (hasPending && !key) throw Error('Задайте GEMINI_API_KEY в этом терминале.');
-  const summary = await runBatch({inputs, outputDir, identity,
-    evaluate: input => evaluateGemini(input, {key, model, fast: identity.fast})});
+  const summary = await runBatch({inputs, outputDir, identity, stopOnRequestRejected: true,
+    evaluate: input => evaluateGemini(input, {key, model, fast: identity.fast,
+      request: recordingRequest({outputDir, key, conversationId: input.conversation_id}),
+      onEvent: event => appendFileSync(path.join(outputDir, '.run', 'diagnostics.log'),
+        JSON.stringify({timestamp: new Date().toISOString(), conversation_id: input.conversation_id, model, ...event}) + '\n')
+    })});
   console.log('Сбор завершён:', summary);
   const result = spawnSync(python, [path.join(here, 'compare.py'), '--predictions', outputDir,
     '--report', path.join(here, 'report.json')], {stdio: 'inherit'});
   if (result.status !== 0) throw Error('Сравнение не завершилось. Сохранённые ответы доступны; повторять сбор не требуется.');
+  if (summary.savedErrors || summary.interrupted) process.exitCode = 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   main().catch(error => { console.error(error.message); process.exitCode = 1; });
 }

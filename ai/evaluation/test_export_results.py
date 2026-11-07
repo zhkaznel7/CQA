@@ -161,6 +161,19 @@ class ExportTests(unittest.TestCase):
         mapping["custom-contact"] = "contact"
         self.assertEqual(exporter.convert(self.records[0], self.response, self.scored, mapping)["status"], "ok")
 
+    def test_failed_or_incomplete_official_source_is_rejected(self):
+        for patch in [{"isSuccess": False}, {"isSuccess": None}]:
+            source = {**self.source, **patch}
+            with self.assertRaisesRegex(ValueError, "Источник API"):
+                exporter.validate_source(source, "prod")
+        source = copy.deepcopy(self.source)
+        source["data"]["total_records"] = 9
+        with self.assertRaisesRegex(ValueError, "total_records"):
+            exporter.validate_source(source, "prod")
+        source["data"]["total_records"] = 10
+        source["isSuccess"] = True
+        self.assertEqual(len(exporter.validate_source(source, "prod")), 10)
+
     def test_cli_writes_complete_utf8_submission_without_network(self):
         import json
         import subprocess
@@ -183,6 +196,13 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(len(saved["results"]), 10)
             self.assertEqual(saved["results"][0]["criteria"][0]["evidence_turns"], [3])
             self.assertEqual(saved["results"][0]["score"]["final_score"], 73.5)
+            original = target.read_bytes()
+            again = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(again.returncode, 0)
+            self.assertIn("--overwrite", again.stderr)
+            self.assertEqual(target.read_bytes(), original)
+            explicit = subprocess.run(command + ["--overwrite"], capture_output=True, text=True)
+            self.assertEqual(explicit.returncode, 0, explicit.stderr)
 
 
 if __name__ == "__main__":

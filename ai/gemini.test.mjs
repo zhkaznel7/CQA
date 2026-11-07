@@ -25,6 +25,12 @@ function discoveryChecks(index, known = true, clarified = true) {
     {...check('Оператор уточнил недостающее до ответа', clarified, index, 2), condition_id: 'missing_details_clarified_before_answer'}
   ];
 }
+function greetingChecks(index, greeted = true, introduced = true) {
+  return [
+    {...check('Приветствие', greeted, index), condition_id: 'greeting_in_client_language'},
+    {...check('Представление', introduced, index, 2), condition_id: 'operator_introduced'}
+  ];
+}
 function levels(input, key, selected, reason) {
   return input.checklist.criteria.find(c => c.key === key).scaleSteps.map(step =>
     ({value: step.value, met: step.value === selected, reason: step.value === selected ? reason : 'Эта ступень не соответствует эпизоду.'}));
@@ -311,6 +317,7 @@ test('ordinary chat greeting cannot acquire a prohibited N/A', async () => {
 
 test('compound conditions compute AND and OR; unsupported evidence is rejected', () => {
   const input = conversation('p1-kz-008', ['01']);
+  input.checklist.criteria[0] = {...input.checklist.criteria[0], description: 'Проверки A и B или C.'};
   const result = row(input, '01', 9);
   result.answer = true;
   result.checks = [check('Приветствие', true, 9), check('Представление', false, 9, 2)];
@@ -328,7 +335,7 @@ test('boolean=false requires checked_range even with a valid quote and omission=
     const input = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
     input.checklist.criteria = [{...input.checklist.criteria.find(c => c.key === '01'), key}];
     const result = row(input, key, 1);
-    result.checks = [check('Приветствие', true, 1), check('Представление', false, 1, 2)];
+    result.checks = greetingChecks(1, true, false);
     result.checked_range = null;
     result.omission = false;
     await assert.rejects(run(input, [result]), {status: 502, code: 'INVALID_MODEL_OUTPUT', message: /checked_range/});
@@ -341,7 +348,7 @@ test('boolean=false accepts inclusive ranges and still rejects invalid bounds or
   const input = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
   input.checklist.criteria = input.checklist.criteria.filter(c => c.key === '01');
   const result = row(input, '01', 1);
-  result.checks = [check('Приветствие', true, 1), check('Представление', false, 1, 2)];
+  result.checks = greetingChecks(1, true, false);
   for (const span of [{start: 1, end: 1}, {start: 0, end: 1}]) {
     result.checked_range = span;
     const [wire] = await run(input, [result]);
@@ -360,7 +367,7 @@ test('boolean=false accepts inclusive ranges and still rejects invalid bounds or
 test('positive boolean, N/A and numeric zero do not inherit the boolean=false range requirement', async () => {
   const greetingInput = conversation('p1-ru-025', ['01']);
   const greeting = row(greetingInput, '01', 9);
-  greeting.checks = [check('Приветствие', true, 9), check('Представление', true, 9, 2)];
+  greeting.checks = greetingChecks(9);
   greeting.checked_range = null;
   assert.equal((await run(greetingInput, [greeting]))[0].answer, true);
 
@@ -386,10 +393,11 @@ test('positive boolean, N/A and numeric zero do not inherit the boolean=false ra
 test('p1-en-014: reaction to concern is separately required for empathy', async () => {
   const input = conversation('p1-en-014', ['05']);
   const result = row(input, '05', 12);
-  result.checks = [check('Вежливость', true, 12), check('Реакция на опасение о проверке личности', false, 12, 2)];
+  result.checks = [{...check('Вежливость', true, 12), condition_id: 'polite'},
+    {...check('Реакция на опасение о проверке личности', false, 12, 2), condition_id: 'reaction_to_inconvenience'}];
   const [wire] = await run(input, [result]);
   assert.equal(wire.answer, false);
-  assert.match(wire.explanation, /Реакция на опасение о проверке личности — не подтверждено/);
+  assert.match(wire.explanation, /конкретную проблему — не подтверждено/);
 });
 
 test('p1-en-015: selected level explains the communication failure', async () => {
@@ -410,9 +418,9 @@ test('flag computes OR across each checked violation, with no extra third-party 
   const input = conversation('p1-en-014', ['08']);
   const result = row(input, '08', 10);
   result.violations = [
-    {violation:'Оскорбление',detected:false,reason:'Оскорбления нет.',turnIndexes:[10]},
-    {violation:'Платная услуга в обход компании',detected:false,reason:'Такой услуги нет.',turnIndexes:[10]},
-    {violation:'Раскрытие конфиденциальной информации',detected:true,reason:'Раскрыт статус счёта до проверки.',turnIndexes:[10]}
+    {violation:'insult',detected:false,reason:'Оскорбления нет.',turnIndexes:[10]},
+    {violation:'paid_service_outside_company',detected:false,reason:'Такой услуги нет.',turnIndexes:[10]},
+    {violation:'confidentiality_disclosure',detected:true,reason:'Раскрыт статус счёта до проверки.',turnIndexes:[10]}
   ];
   const [wire] = await run(input, [result], {inspect: body => {
     assert.match(body.systemInstruction.parts[0].text, /Не добавляй «третьим лицам»/);
@@ -536,8 +544,7 @@ test('400 diagnostics classify schema and key errors without leaking provider te
 test('ordinary greeting and confirmed N/A stay distinct in one unchanged Backend response', async () => {
   const input = conversation('p1-ru-025', ['01','04']);
   const greeting = row(input, '01', 9);
-  greeting.checks = [check('Приветствие на языке клиента', true, 9),
-    check('Представление в первом ответе', true, 9, 2)];
+  greeting.checks = greetingChecks(9);
   const consultation = row(input, '04', 10);
   consultation.na_assessment = {condition_met:true,reason:'Клиент покинул чат, не сформулировав вопрос.'};
   const output = await run(input, [greeting, consultation], {inspect: body => {
@@ -631,9 +638,9 @@ test('absence of violations never becomes a positive flag via generic met=true',
   const input=conversation('p1-ru-025',['08']);
   const result=row(input,'08',9);
   result.violations=[
-    {violation:'Оскорбление',detected:false,reason:'Оскорблений нет.',turnIndexes:[9]},
-    {violation:'Платная услуга в обход компании',detected:false,reason:'Предложения нет.',turnIndexes:[9]},
-    {violation:'Раскрытие конфиденциальной информации',detected:false,reason:'Раскрытия нет.',turnIndexes:[9]}
+    {violation:'insult',detected:false,reason:'Оскорблений нет.',turnIndexes:[9]},
+    {violation:'paid_service_outside_company',detected:false,reason:'Предложения нет.',turnIndexes:[9]},
+    {violation:'confidentiality_disclosure',detected:false,reason:'Раскрытия нет.',turnIndexes:[9]}
   ];
   const [wire]=await run(input,[result]);
   assert.equal(wire.answer,false);
@@ -654,4 +661,73 @@ test('one justified allowed scale level is sufficient without enumerating reject
   await assert.rejects(run(input,[result]),/ступень/);
   result.levels=[{value:10,met:true,reason:'Первый'},{value:10,met:true,reason:'Повтор'}];
   await assert.rejects(run(input,[result]),/повторная ступень/);
+});
+
+test('official contact cannot pass with only greeting or evidence from a bot', async () => {
+  const input = conversation('p1-ru-025', ['01']);
+  const result = row(input, '01', 9);
+  result.checks = greetingChecks(9).slice(0, 1);
+  await assert.rejects(run(input, [result]), /отдельные checks/);
+  result.checks = greetingChecks(9);
+  assert.equal((await run(input, [result]))[0].answer, true);
+  result.evidence = [{turnIndex: 1, quote: input.transcript[1].text}];
+  result.checks = greetingChecks(1);
+  await assert.rejects(run(input, [result]), /первым ответом оператора/);
+});
+
+test('empathy includes the conditional reaction check even when there is no trigger', async () => {
+  const input = conversation('p1-ru-025', ['05']);
+  const result = row(input, '05', 9);
+  result.checks = [{...check('Вежливость', true, 9), condition_id: 'polite'}];
+  await assert.rejects(run(input, [result]), /отдельные checks/);
+  result.checks.push({...check('Реакция при наличии неудобства', true, 9, 2),
+    condition_id: 'reaction_to_inconvenience', reason: 'Клиент не сообщил о неудобстве; условие не нарушено.'});
+  assert.equal((await run(input, [result]))[0].answer, true);
+});
+
+test('closure requires (summary OR further help) AND goodbye for every combination', async () => {
+  const input = conversation('p1-ru-025', ['07']);
+  for (const summary of [false, true]) for (const help of [false, true]) for (const goodbye of [false, true]) {
+    input.transcript = [
+      {turnIndex:0, timestamp:'00:00', speaker:'client', text:'Спасибо, вопрос решён.'},
+      {turnIndex:1, timestamp:'00:01', speaker:'operator', text:[summary && 'Подвели итог.', help && 'Чем ещё помочь?', goodbye && 'До свидания!'].filter(Boolean).join(' ') || 'Хорошо.'},
+      {turnIndex:2, timestamp:'00:02', speaker:'system', text:'Оператор закрыл чат.'}
+    ];
+    const result = row(input, '07', 1);
+    result.checks = [
+      {...check('Итог', summary, 1), condition_id:'summary'},
+      {...check('Дальнейшая помощь', help, 1), condition_id:'further_help'},
+      {...check('Прощание', goodbye, 1, 2), condition_id:'goodbye'}
+    ];
+    assert.equal((await run(input, [result]))[0].answer, (summary || help) && goodbye);
+  }
+});
+
+test('critical requires every configured violation and cannot skip the paid-service offer', async () => {
+  const input = conversation('p1-kz-013', ['08']);
+  const result = row(input, '08', 11);
+  result.violations = [{violation:'insult', detected:false, reason:'Оскорбления нет.', turnIndexes:[11]}];
+  await assert.rejects(run(input, [result]), /каждого вида нарушения/);
+  result.violations.push(
+    {violation:'paid_service_outside_company', detected:true, reason:'Предложена частная платная консультация.', turnIndexes:[11]},
+    {violation:'confidentiality_disclosure', detected:false, reason:'Раскрытия данных нет.', turnIndexes:[11]}
+  );
+  result.violations.reverse();
+  const [wire] = await run(input, [result]);
+  assert.equal(wire.answer, true);
+  assert.match(wire.explanation, /Предложение платной услуги в обход компании — выявлено/);
+  assert.ok(!wire.explanation.includes('paid_service_outside_company'));
+  result.violations[0].violation = result.violations[1].violation;
+  await assert.rejects(run(input, [result]), /каждого вида нарушения/);
+});
+
+test('an edited flag is assessed by its current definition without inherited violations', async () => {
+  const input = conversation('p1-ru-025', ['08']);
+  input.checklist.criteria[0] = {...input.checklist.criteria[0], key:'new-flag', description:'Выявлено повторное обещание.'};
+  const result = row(input, 'new-flag', 9);
+  result.violations = [{violation:'Повторное обещание', detected:false, reason:'Повтора нет.', turnIndexes:[9]}];
+  const [wire] = await run(input, [result], {inspect: body => {
+    assert.deepEqual(JSON.parse(body.contents[0].parts[0].text).violation_policies, []);
+  }});
+  assert.equal(wire.answer, false);
 });

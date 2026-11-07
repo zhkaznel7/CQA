@@ -1,4 +1,6 @@
 __pycache__/
+predictions-*/
+report-*.json
 predictions/
 report.json
 predictions-recheck-v2/
@@ -13,3 +15,5 @@ report-ru025-v2-2.json
 revalidated-ru025-v2-2/
 predictions-ru025-v2-3/
 report-ru025-v2-3.json
+predictions-ru025-v2-3-1/
+report-ru025-v2-3-1.json
