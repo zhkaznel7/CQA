@@ -64,6 +64,17 @@ class ComparisonTests(unittest.TestCase):
             (path / "duplicate.json").write_text(json.dumps(response))
             with self.assertRaisesRegex(ValueError, "повтор"):
                 comparison.read_predictions(path, set(self.predictions))
+    def test_provider_success_with_invalid_output_is_not_called_http_failure(self):
+        self.predictions["p1-ru-001"] = {"error": {
+            "code": "INVALID_MODEL_OUTPUT",
+            "message": "критерий 01, N/A не разрешён рубрикой"
+        }}
+        report = comparison.compare(self.labels, self.predictions, self.source)
+        detail = next(r for r in report["details"] if r["conversation_id"] == "p1-ru-001")
+        self.assertIn("Ошибка проверки ответа Gemini", detail["problem"])
+        self.assertIn("N/A не разрешён", detail["problem"])
+        self.assertNotIn("HTTP", detail["problem"])
+
 
 class ScaleDistanceTests(unittest.TestCase):
     setUp = ComparisonTests.setUp

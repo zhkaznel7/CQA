@@ -112,7 +112,14 @@ def compare(labels, predictions, source):
             problem = "нет сохранённого ответа"
         elif "error" in prediction:
             error = prediction["error"]
-            problem = "HTTP-ошибка: " + str(error.get("code", "unknown")) if isinstance(error, dict) else "некорректный объект error"
+            if isinstance(error, dict):
+                code = error.get("code", "unknown")
+                prefix = "Ошибка проверки ответа Gemini" if code == "INVALID_MODEL_OUTPUT" else "Ошибка оценки"
+                problem = prefix + ": " + str(code)
+                if isinstance(error.get("message"), str) and error["message"].strip():
+                    problem += " — " + error["message"]
+            else:
+                problem = "некорректный объект error"
         elif type(prediction.get("checklist_version")) is not int or prediction["checklist_version"] != labels["rubric"]["version"]:
             problem = "версия чек-листа не совпадает"
         elif not isinstance(prediction.get("results"), list):

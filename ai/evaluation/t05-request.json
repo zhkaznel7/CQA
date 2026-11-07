@@ -1,0 +1,46 @@
+{
+  "conversation_id": "T05",
+  "channel": "agent chat",
+  "language": "RU",
+  "transcript": [
+    {
+      "turnIndex": 0,
+      "timestamp": "00:00",
+      "speaker": "client",
+      "text": "Где посмотреть публичные тарифы компании?"
+    },
+    {
+      "turnIndex": 1,
+      "timestamp": "00:01",
+      "speaker": "operator",
+      "text": "Здравствуйте! Публичные тарифы доступны на сайте компании."
+    }
+  ],
+  "checklist": {
+    "id": "50000000-0000-4000-8000-000000000005",
+    "key": "t05-identification",
+    "version": 1,
+    "name": "T05: идентификация для публичной информации",
+    "instructions": [
+      "Оценивайте действия оператора только по переданному критерию."
+    ],
+    "sections": [
+      {
+        "key": "safety",
+        "name": "Безопасность"
+      }
+    ],
+    "criteria": [
+      {
+        "key": "c3",
+        "name": "Идентификация",
+        "type": "boolean",
+        "weight": 100,
+        "sectionKey": "safety",
+        "description": "Да — проверка личности подтверждена до раскрытия данных или защищённого действия. N/A — запрос не требовал идентификации.",
+        "allowNa": true,
+        "naCondition": "запрос не требовал идентификации."
+      }
+    ]
+  }
+}
