@@ -1,0 +1,5 @@
+{"at":"2026-11-07T19:35:01.201Z","request_id":"87f229c0-96e5-432b-ac9d-dabd1088806c","model":"gemini-3.5-flash-lite","event":"evaluation_started","elapsed_ms":0}
+{"at":"2026-11-07T19:35:01.208Z","request_id":"87f229c0-96e5-432b-ac9d-dabd1088806c","model":"gemini-3.5-flash-lite","event":"provider_dispatched","elapsed_ms":0,"timeout_ms":90000}
+{"at":"2026-11-07T19:35:03.038Z","request_id":"87f229c0-96e5-432b-ac9d-dabd1088806c","model":"gemini-3.5-flash-lite","event":"provider_headers","elapsed_ms":1830,"http_status":200}
+{"at":"2026-11-07T19:35:03.044Z","request_id":"87f229c0-96e5-432b-ac9d-dabd1088806c","model":"gemini-3.5-flash-lite","event":"provider_body","elapsed_ms":1836,"http_status":200}
+{"at":"2026-11-07T19:35:03.045Z","request_id":"87f229c0-96e5-432b-ac9d-dabd1088806c","model":"gemini-3.5-flash-lite","event":"evaluation_completed","elapsed_ms":1845,"criteria_returned":1}
