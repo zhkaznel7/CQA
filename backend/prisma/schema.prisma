@@ -25,7 +25,8 @@ enum AppealStatus {
 
 model Conversation {
   id           String       @id @default(uuid()) @db.Uuid
-  externalId   String       @unique @db.VarChar(200)
+  externalId   String       @db.VarChar(200)
+  groupId      String       @default("__legacy__") @db.VarChar(200)
   language     Language
   channel      String       @db.VarChar(50)
   audioUrl     String?      @db.Text
@@ -36,6 +37,8 @@ model Conversation {
   applicabilityConfirmations ApplicabilityConfirmation[]
 
   @@index([language, channel])
+  @@unique([groupId, externalId])
+  @@index([groupId, createdAt, id])
   @@index([createdAt, id])
 }
 

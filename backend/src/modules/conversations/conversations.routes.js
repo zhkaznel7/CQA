@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { parse } from '../../middleware/validate.js';
-import { conversationQuery, idParams, importRequest } from './conversations.schema.js';
+import { conversationQuery, idParams, importRequest, importQuery } from './conversations.schema.js';
 import { conversationService } from './conversations.service.js';
 
 export function conversationsRouter(database, loadConversations, maxRecords) {
@@ -8,9 +8,9 @@ export function conversationsRouter(database, loadConversations, maxRecords) {
   const service = conversationService(database, loadConversations, maxRecords);
   router.get('/', async (req, res) => res.json(await service.list(parse(conversationQuery, req.query))));
   router.post('/import', async (req, res) => {
-    parse(importRequest, req.body === undefined ? {} : req.body);
-    parse(importRequest, req.query);
-    res.json({ data: await service.import() });
+    const { group_id } = parse(importRequest, req.body === undefined ? {} : req.body);
+    parse(importQuery, req.query);
+    res.json({ data: await service.import(group_id) });
   });
   router.get('/:id', async (req, res) => res.json({ data: await service.get(parse(idParams, req.params).id) }));
   return router;

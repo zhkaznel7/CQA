@@ -1,17 +1,24 @@
 import { ApiError } from '../../middleware/api-error.js';
 import { mockConversations } from './mock-conversations.js';
 import { organizerRecords } from './organizer-payload.js';
+import { groupIdSchema } from './groups.js';
 
 export function createConversationSource(config, fetchImplementation = fetch) {
-  return async function loadConversations() {
-    if (config.IMPORT_SOURCE === 'mock') return structuredClone(mockConversations);
+  return async function loadConversations(groupId = 'DEV') {
+    groupIdSchema.parse(groupId);
+    if (config.IMPORT_SOURCE === 'mock') {
+      if (groupId !== 'DEV') throw new ApiError(503, 'MOCK_GROUP_UNAVAILABLE', 'Mock import provides only DEV fixtures; configure the organizer source for other groups');
+      return structuredClone(mockConversations);
+    }
     if (!config.ORGANIZER_API_URL) {
       throw new ApiError(503, 'IMPORT_NOT_CONFIGURED', 'Organizer API is not configured');
     }
     try {
       // Destination is exclusively server configuration; never take a URL from a request.
       // Redirects are forbidden so the configured origin cannot redirect into another network.
-      const response = await fetchImplementation(config.ORGANIZER_API_URL, {
+      const endpoint = new URL(config.ORGANIZER_API_URL);
+      endpoint.searchParams.set('group_id', groupId);
+      const response = await fetchImplementation(endpoint.toString(), {
         method: 'GET', redirect: 'error', signal: AbortSignal.timeout(config.IMPORT_TIMEOUT_MS),
         headers: { Accept: 'application/json', ...(config.ORGANIZER_API_TOKEN ? { Authorization: `Bearer ${config.ORGANIZER_API_TOKEN}` } : {}) },
       });
@@ -43,7 +50,7 @@ export function createConversationSource(config, fetchImplementation = fetch) {
         reader.releaseLock();
       }
       const payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      return organizerRecords(payload, config.IMPORT_MAX_RECORDS);
+      return organizerRecords(payload, config.IMPORT_MAX_RECORDS, groupId);
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (error?.name === 'TimeoutError' || error?.name === 'AbortError') {

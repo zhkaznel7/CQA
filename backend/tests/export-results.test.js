@@ -23,6 +23,18 @@ function fixture(){
  evaluation.score=calculateScore(parseChecklist(checklist),results.map(r=>({criterionKey:r.criterion.key,value:r.answer})));
  return {teamName:'AUDIT SYNTHETIC ONLY',model:mockModel,manifest:[conversation],evaluations:[evaluation],checklist,expectedCount:1,allowMock:true};
 }
+
+test('exports reject mixed dataset groups even when their source IDs and content match',()=>{
+ const input=rawSnapshot(fixture()); input.groupId='DEV'; input.evaluations[0].conversation.groupId='DEV';
+ assert.equal(createOfficialResults(input).results[0].status,'ok');
+ const transfer=createAiExportInputs({file:createOfficialResults(input),evaluations:input.evaluations,checklist:input.checklist,dataset:'dev',groupId:'DEV'});
+ assert.equal(transfer.manifest.group_id,'DEV');
+ const other=structuredClone(input.evaluations[0]);other.id=randomUUID();other.conversationId=randomUUID();other.conversation={...other.conversation,id:other.conversationId,groupId:'test_second'};
+ input.evaluations.push(other);
+ assert.throws(()=>createOfficialResults(input),/another dataset group/);
+ assert.throws(()=>createAiExportInputs({file:{results:[]},evaluations:input.evaluations,checklist:input.checklist,dataset:'dev',groupId:'DEV'}),/another dataset group/);
+ delete input.groupId;assert.throws(()=>createOfficialResults(input),/Duplicate external ID/);
+});
 test('official export is strict version 1.0, eight named criteria, source IDs, weighted score and one-based turns',()=>{
  const input=fixture(),before=structuredClone(input),file=createOfficialResults(input);assert.deepEqual(input,before);
  assert.equal(file.schema_version,'1.0');assert.equal(file.results[0].conversation_id,input.manifest[0].externalId);assert.equal(file.results[0].status,'ok');

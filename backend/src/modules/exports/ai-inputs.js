@@ -18,10 +18,11 @@ export function assertSavedAiSnapshot(evaluation,checklist) {
 }
 
 /** Offline compatibility bridge only. Scores are copied from saved Backend snapshots. */
-export function createAiExportInputs({file,evaluations,checklist,dataset}) {
+export function createAiExportInputs({file,evaluations,checklist,dataset,groupId}) {
   if(!['dev','prod'].includes(dataset))throw new Error('An explicit dataset is required');
   const byId=new Map();
   for(const evaluation of evaluations){
+    if(groupId!==undefined && evaluation.conversation.groupId!==groupId)throw new Error('AI export contains another dataset group');
     if(byId.has(evaluation.conversation.externalId))throw new Error('Duplicate external ID');
     byId.set(evaluation.conversation.externalId,evaluation);
   }
@@ -41,7 +42,7 @@ export function createAiExportInputs({file,evaluations,checklist,dataset}) {
     records.push({conversation_id:record.conversation_id,backend_conversation_id:evaluation.conversationId,
       evaluation_id:evaluation.id,status:'ok'});
   }
-  return {responses,scores,manifest:{transfer_version:'1.0',dataset,checklist_id:checklist.id,
+  return {responses,scores,manifest:{transfer_version:'1.0',dataset,...(groupId===undefined?{}:{group_id:groupId}),checklist_id:checklist.id,
     checklist_version:checklist.version,team_name:file.team_name,model:file.model,
     synthetic:evaluations.some(e=>e.provider==='mock'),records}};
 }

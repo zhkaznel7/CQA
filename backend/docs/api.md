@@ -160,10 +160,14 @@ async function getHealth() {
 | page, pageSize | Нет | Общая пагинация |
 | language | Нет | Только RU, KZ, EN, регистр важен |
 | channel | Нет | Строка после trim: 1–50 символов, точное совпадение |
+| group_id | Нет | Точный ID группы: 1–200 ASCII букв/цифр/_/-, первый символ буква/цифра |
 
 Успех 200; 400 VALIDATION_ERROR; 503 DATABASE_UNAVAILABLE.
 Фильтр channel не объединяет voice call/voice/call: он ищет сохранённую строку.
 Точное совпадение действует и для agent chat/chat.
+group_id чувствителен к регистру и не обрезается. Без фильтра возвращаются все группы.
+В списке и полном диалоге есть groupId. Одинаковые externalId из разных групп имеют
+разные внутренние id: именно их используйте для оценивания и апелляций.
 
 Успех **HTTP 200**; полный синтетический ответ:
 
@@ -176,15 +180,16 @@ async function getHealth() {
       "language": "RU",
       "channel": "agent chat",
       "audioUrl": null,
-      "createdAt": "2026-11-07T20:32:59.719Z"
+      "createdAt": "2026-11-07T20:32:59.719Z",
+      "groupId": "DEV"
     }
   ],
   "pagination": {"page":1,"pageSize":1,"total":31,"totalPages":31}
 }
 ```
 ```javascript
-async function listConversations({page = 1, pageSize = 20, language, channel} = {}) {
-  return apiRequest('/api/conversations', {query: {page, pageSize, language, channel}});
+async function listConversations({page = 1, pageSize = 20, language, channel, group_id} = {}) {
+  return apiRequest('/api/conversations', {query: {page, pageSize, language, channel, group_id}});
 }
 ```
 
@@ -209,7 +214,8 @@ URL: id обязателен, UUID Conversation. Query/body: нет.
       {"text":"Здравствуйте! Чем могу помочь?","speaker":"operator","timestamp":"00:00:01.000","turnIndex":0},
       {"text":"Хочу узнать условия.","speaker":"client","timestamp":"00:00:02.000","turnIndex":1}
     ],
-    "createdAt": "2026-11-07T20:32:59.719Z"
+    "createdAt": "2026-11-07T20:32:59.719Z",
+    "groupId": "DEV"
   }
 }
 ```
@@ -229,10 +235,14 @@ async function getConversation(id) {
 ## POST /api/conversations/import
 
 Запустить импорт из источника, настроенного на сервере. URL/query: нет.
-Body: {} либо отсутствует; других допустимых полей нет. Frontend не передаёт URL,
+Body: необязательный group_id (default DEV); {} и отсутствие тела совместимы.
+ID: 1–200 ASCII букв/цифр/_/-, первый символ буква/цифра, регистр сохраняется.
+Пробелы/URL/query/control-символы запрещены. Frontend не передаёт URL,
 токен, массив диалогов, conversation_id или dataset. Это не endpoint загрузки файла.
-Источник по умолчанию — синтетический mock; organizers использует только
-ORGANIZER_API_URL/ORGANIZER_API_TOKEN из Backend окружения, без redirects.
+Источник по умолчанию — синтетический mock только для DEV; другая группа даёт
+503 MOCK_GROUP_UNAVAILABLE. organizers использует только ORGANIZER_API_URL/ORGANIZER_API_TOKEN
+из окружения, без redirects, заменяя только query group_id у фиксированного URL.
+Это GET организаторов из Student Guide, стр. 3; POST /api/groups не требуется.
 
 Запрос:
 
@@ -242,13 +252,14 @@ ORGANIZER_API_URL/ORGANIZER_API_TOKEN из Backend окружения, без re
 Успех **HTTP 200**; полный синтетический ответ:
 
 ```json
-{"data":{"received":1,"imported":1,"duplicates":0,"invalid":0,"rejected":[]}}
+{"data":{"received":1,"imported":1,"duplicates":0,"invalid":0,"rejected":[],"groupId":"DEV"}}
 ```
 
 received — число исходных записей; imported — добавленные; duplicates — повторения
 в пачке плюс уже сохранённые externalId; invalid — отклонённые записи.
 rejected содержит {index,code:"INVALID_RECORD",paths:[...]} с индексом записи от 0.
-Первая валидная запись с externalId побеждает; существующие записи не перезаписываются.
+Счётчики содержат groupId. Первая валидная запись с externalId побеждает внутри группы;
+существующие записи той же группы не перезаписываются. Другие группы изолированы.
 Повтор безопасен: imported=0 при том же наборе. Пустой набор и даже все невалидные
 записи возвращают 200 с соответствующими счётчиками; проверяйте invalid/rejected.
 
@@ -264,19 +275,44 @@ speaker 1–200, text 1–100000, оба не пустые после прове
 
 | HTTP | code | Причина |
 | --- | --- | --- |
-| 400 | VALIDATION_ERROR | Непустое тело или лишние query/поля |
+| 400 | VALIDATION_ERROR | Некорректный group_id или лишние query/поля |
+| 502 | UPSTREAM_GROUP_MISMATCH | dataset_group_id официального ответа не совпал с запросом |
 | 502 | UPSTREAM_INVALID_DATA | Неверная/неполная оболочка, количество/лимит записей |
 | 502 | UPSTREAM_ERROR | HTTP/сеть/redirect/невалидный JSON источника |
 | 502 | UPSTREAM_TOO_LARGE | Ответ источника превышает лимит |
 | 503 | IMPORT_NOT_CONFIGURED | organizers выбран без URL |
+| 503 | MOCK_GROUP_UNAVAILABLE | Встроенный mock не предоставляет другие группы |
 | 503 | DATABASE_UNAVAILABLE | Недоступность БД |
 | 504 | UPSTREAM_TIMEOUT | Истёк timeout источника |
 
 После импорта заново запросите первую страницу списка.
 
+Для другой группы вызовите `importConversations(groupId)` с реальным ID организаторов
+из допустимого ASCII-формата. При IMPORT_SOURCE=organizers
+менять код/URL ради нового набора не нужно. В ответе источника проверяется
+data.dataset_group_id. Для старой оболочки conversations без метаданных группа
+связывается с параметром выполненного серверного запроса.
+
+PowerShell после настройки источника и применения миграции 008:
+
+```powershell
+$base = 'http://127.0.0.1:3000'
+$groupId = Read-Host 'group_id от организаторов'
+$json = @{ group_id = $groupId } | ConvertTo-Json
+Invoke-RestMethod "$base/api/conversations/import" -Method Post -ContentType 'application/json' -Body $json
+$encoded = [Uri]::EscapeDataString($groupId)
+Invoke-RestMethod "$base/api/conversations?group_id=$encoded&page=1&pageSize=100"
+```
+
+Старые записи имеют groupId=__legacy__ (неизвестный набор), не считаются DEV автоматически
+и остаются доступными без фильтра/по UUID. Повторный импорт создаёт отдельные записи
+известной группы, не меняет старые оценки. Для выдачи результатов используйте Backend
+CLI `--dataset prod --group-id <выданный ID>` с исходным manifest контрольного набора:
+[подробная инструкция](results-export.md). Отдельных groups/export HTTP API нет.
+
 ```javascript
-async function importConversations() {
-  return apiRequest('/api/conversations/import', {method: 'POST', body: {}});
+async function importConversations(group_id = 'DEV') {
+  return apiRequest('/api/conversations/import', {method: 'POST', body: {group_id}});
 }
 ```
 
@@ -980,7 +1016,8 @@ recording_start_missing исключение действует только д�
       "channel": "agent chat",
       "audioUrl": null,
       "transcript": [{"text":"Здравствуйте! Чем могу помочь?","speaker":"operator","timestamp":"00:00:01.000","turnIndex":0},{"text":"Хочу узнать условия.","speaker":"client","timestamp":"00:00:02.000","turnIndex":1}],
-      "createdAt": "2026-11-07T20:32:59.719Z"
+      "createdAt": "2026-11-07T20:32:59.719Z",
+      "groupId": "DEV"
     }
   }
 }
@@ -1131,7 +1168,8 @@ URL: id обязателен, UUID Appeal. Query/body: нет.
       "channel": "agent chat",
       "audioUrl": null,
       "transcript": [{"text":"Здравствуйте! Чем могу помочь?","speaker":"operator","timestamp":"00:00:01.000","turnIndex":0},{"text":"Хочу узнать условия.","speaker":"client","timestamp":"00:00:02.000","turnIndex":1}],
-      "createdAt": "2026-11-07T20:32:59.719Z"
+      "createdAt": "2026-11-07T20:32:59.719Z",
+      "groupId": "DEV"
     }
   }
 }
@@ -1314,7 +1352,8 @@ Flag принимает boolean, не число, и не допускает N/A
       "channel": "agent chat",
       "audioUrl": null,
       "transcript": [{"text":"Здравствуйте! Чем могу помочь?","speaker":"operator","timestamp":"00:00:01.000","turnIndex":0},{"text":"Хочу узнать условия.","speaker":"client","timestamp":"00:00:02.000","turnIndex":1}],
-      "createdAt": "2026-11-07T20:32:59.719Z"
+      "createdAt": "2026-11-07T20:32:59.719Z",
+      "groupId": "DEV"
     }
   }
 }
@@ -1367,7 +1406,7 @@ async function frontendScenario({
   await getHealth();
   if (!conversationId) {
     await importConversations();
-    const page = await listConversations({language: 'RU', pageSize: 1});
+    const page = await listConversations({language: 'RU', group_id: 'DEV', pageSize: 1});
     if (!page.data.length) throw new Error('Нет диалогов для демонстрации');
     conversationId = page.data[0].id;
   }
@@ -1442,5 +1481,8 @@ PostgreSQL cqa_audit_test_1794080119448; 27 запросов подтверди�
 Проверены повторное использование оценки, обработка ошибки fetch, новая версия и
 сохранность первоначального итога. Все записи откатились.
 Это проверка API-примеров, не повторный полный аудит.
+T02: добавлены группа импорта/фильтра и поле groupId. Полный набор после изменения:
+147 passed, 0 failed/skipped на отдельной cqa_t02_test_1794084591463 с восемью миграциями.
+JSON-примеры дополнены groupId, все 23 JSON и синтаксис 19 JS-блоков повторно проверены.
 Runtime Docker в этой задаче не пересобирался; команды сверены с существующим Compose.
 API-ошибки реального внешнего AI здесь не вызывались.

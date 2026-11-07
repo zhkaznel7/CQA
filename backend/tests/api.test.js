@@ -73,7 +73,7 @@ test('Conversations and Checklists HTTP API with isolated PostgreSQL', async (t)
         response = await request('/api/conversations/import', { method: 'POST', body: {} });
         assert.equal(response.body.data.imported, 0);
         assert.equal(response.body.data.duplicates, 3);
-        const saved = await tx.conversation.findUniqueOrThrow({ where: { externalId: `${prefix}-ru` } });
+        const saved = await tx.conversation.findUniqueOrThrow({ where: { groupId_externalId: { groupId: 'DEV', externalId: `${prefix}-ru` } } });
         const changed = record('ru'); changed.transcript[0].text = 'Changed upstream text';
         currentSource = async () => [changed];
         assert.equal((await request('/api/conversations/import', { method: 'POST' })).body.data.duplicates, 1);
@@ -81,7 +81,7 @@ test('Conversations and Checklists HTTP API with isolated PostgreSQL', async (t)
       });
 
       await t.test('single conversation keeps transcript order, indices and original timestamps', async () => {
-        const original = await tx.conversation.findUniqueOrThrow({ where: { externalId: `${prefix}-ru` } });
+        const original = await tx.conversation.findUniqueOrThrow({ where: { groupId_externalId: { groupId: 'DEV', externalId: `${prefix}-ru` } } });
         const response = await request(`/api/conversations/${original.id}`);
         assert.equal(response.status, 200);
         assert.equal(response.body.data.transcript[0].timestamp, record('ru').transcript[0].timestamp);
@@ -123,7 +123,7 @@ test('Conversations and Checklists HTTP API with isolated PostgreSQL', async (t)
         assert.equal(response.body.data.duplicates, 1);
         assert.equal(response.body.data.invalid, 6);
         assert.equal(JSON.stringify(response.body).includes('Synthetic example'), false);
-        const stored = await tx.conversation.findUniqueOrThrow({ where: { externalId: extra.externalId } });
+        const stored = await tx.conversation.findUniqueOrThrow({ where: { groupId_externalId: { groupId: 'DEV', externalId: extra.externalId } } });
         assert.deepEqual(stored.transcript.map((turn) => turn.turnIndex), [0, 1]);
         assert.deepEqual(stored.transcript.map((turn) => turn.timestamp), [extra.transcript[0].timestamp, 1250]);
         currentSource = async () => [];
@@ -159,7 +159,8 @@ test('Conversations and Checklists HTTP API with isolated PostgreSQL', async (t)
           assert.equal(JSON.stringify(response.body).includes('organizer.invalid'), false);
         }
         currentSource = createConversationSource(config, async (url, options) => {
-          assert.equal(url, privateUrl);
+          const expected = new URL(privateUrl); expected.searchParams.set('group_id', 'DEV');
+          assert.equal(url, expected.toString());
           assert.equal(options.redirect, 'error');
           assert.equal(options.headers.Authorization, 'Bearer private-token');
           assert.ok(options.signal);
@@ -188,7 +189,7 @@ test('Conversations and Checklists HTTP API with isolated PostgreSQL', async (t)
         assert.equal(v1.criteria[7].weight, 0);
         assert.deepEqual(v1.instructions, official.instructions);
         assert.equal((await request('/api/checklists', { method: 'POST', body })).status, 409);
-        const conversation = await tx.conversation.findUniqueOrThrow({ where: { externalId: `${prefix}-ru` } });
+        const conversation = await tx.conversation.findUniqueOrThrow({ where: { groupId_externalId: { groupId: 'DEV', externalId: `${prefix}-ru` } } });
         oldEvaluation = await tx.evaluation.create({ data: { conversationId: conversation.id, checklistId: v1.id } });
         await tx.criterionResult.createMany({ data: v1.criteria.map((criterion) => ({
           evaluationId: oldEvaluation.id, checklistId: v1.id, criterionId: criterion.id,

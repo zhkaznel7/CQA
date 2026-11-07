@@ -13,9 +13,9 @@ Backend. Авторизация для демонстрации не требу�
 | Метод | Маршрут | Назначение |
 | --- | --- | --- |
 | GET | /api/health | Доступность HTTP-приложения |
-| GET | /api/conversations | Список: page, pageSize, language, channel |
+| GET | /api/conversations | Список: page, pageSize, language, channel, group_id |
 | GET | /api/conversations/:id | Диалог с транскриптом |
-| POST | /api/conversations/import | Импорт настроенного источника; тело {} |
+| POST | /api/conversations/import | Импорт источника; {group_id}, default DEV |
 | GET | /api/checklists | Версии: page, pageSize, key |
 | GET | /api/checklists/:id | Версия с критериями |
 | POST | /api/checklists | Новое семейство, версия 1 |
@@ -96,6 +96,86 @@ Docker использует Node.js 24 LTS. Prisma Client, CLI и PostgreSQL ada
 строкой без пересчёта единиц, известные роли нормализуются только по регистру/пробелам.
 Отсутствующее время и неизвестная роль дают 422 до вызова AI, без догадок и изменения
 данных PostgreSQL. Подробности и результаты 107 тестов: [docs/transcript-adaptation.md](docs/transcript-adaptation.md).
+
+## Группы организаторов: T02
+
+Student Guide (стр. 3) требует GET с параметром `group_id`: DEV для разработки,
+выданное организаторами значение для контроля. `POST /api/groups` не требуется.
+Раньше строгие схемы отклоняли group_id, а externalId был глобально уникален.
+Изменение URL в `.env` позволяло запросить другой набор, но не сохраняло его группу.
+
+Теперь `POST /api/conversations/import` принимает `{ "group_id": "DEV" }` или выданный
+ID. `{}`/отсутствие тела выбирают DEV; query у импорта не поддерживается.
+`GET /api/conversations?group_id=DEV` фильтрует группу вместе с языком/каналом/пагинацией;
+без фильтра возвращаются все группы. Ответы содержат `groupId`. Уникальность и повтор
+импорта определяются парой `(groupId, externalId)`: одинаковый conversation_id в разных
+группах получает разные UUID, транскрипты и оценки не смешиваются.
+
+ID чувствителен к регистру: 1–200 ASCII букв/цифр/`_`/`-`, первый символ — буква или
+цифра. Пробелы/URL/query/control-символы запрещены, trim не применяется.
+Backend заменяет только group_id фиксированного ORGANIZER_API_URL, сохраняет остальные
+параметры/секреты и запрещает redirects. `data.dataset_group_id` официального ответа
+должен совпасть с запросом, иначе 502 UPSTREAM_GROUP_MISMATCH.
+Встроенный mock предоставляет только DEV; другая группа — 503 MOCK_GROUP_UNAVAILABLE.
+Для контроля администратор настраивает IMPORT_SOURCE=organizers и приватные
+ORGANIZER_API_URL/ORGANIZER_API_TOKEN. ID группы сообщат организаторы.
+
+Применение новой восьмой миграции (выберите своё окружение):
+Остановите локальный Backend перед generate/migrate и запустите его после миграции.
+
+```powershell
+Set-Location C:\Users\zhanel\CQA\backend
+# Локально: сначала проверьте, на какую БД указывает DATABASE_URL.
+npm.cmd run db:generate
+npm.cmd run db:migrate
+# Для Docker вместо локального запуска:
+docker compose build backend
+docker compose up -d --wait --wait-timeout 180 backend
+docker compose exec -T backend npm run db:status
+```
+
+Контейнер применит миграцию при старте. Старые записи сохраняются с исходными ID,
+данными и оценками; groupId="__legacy__" означает неизвестную группу. Она не назначается
+автоматически DEV и не задаётся через HTTP. Реимпорт в известную группу создаёт новые
+записи. Для переноса старых оценок нужно отдельно подтвердить происхождение; экспорт
+не подставляет legacy по совпадению внешнего ID.
+
+После настройки источника организаторов:
+
+```powershell
+$base = 'http://127.0.0.1:3000'
+$groupId = Read-Host 'Точный group_id контрольного набора от организаторов'
+$body = @{ group_id = $groupId } | ConvertTo-Json
+Invoke-RestMethod "$base/api/conversations/import" -Method Post -ContentType 'application/json' -Body $body
+$encodedGroup = [Uri]::EscapeDataString($groupId)
+Invoke-RestMethod "$base/api/conversations?group_id=$encodedGroup&page=1&pageSize=100"
+Invoke-RestMethod "$base/api/conversations?group_id=DEV&page=1&pageSize=100"
+```
+
+Контрольный экспорт: `--dataset prod` задаёт split результатов, `--group-id` — реальный
+выданный ID, который не обязан называться PROD. Вход — сохранённый неизменённый ответ
+организаторов с настоящими ID/транскриптами; сначала оцените записи этой группы:
+
+```powershell
+$sourceFile = Read-Host 'Путь к JSON контрольного набора'
+$checklistId = Read-Host 'UUID оценённой версии чек-листа'
+$teamName = Read-Host 'Имя команды'
+$modelName = Read-Host 'Фактическое имя использованной модели'
+npm.cmd run export:results -- --dataset prod --group-id $groupId --input $sourceFile --checklist $checklistId --team $teamName --model-name $modelName --model-mode external_api
+```
+
+Режим модели укажите фактический. Для mock используйте только `--allow-mock` без
+model-name/model-mode: synthetic остаётся в `.tmp`, не в официальном пути.
+Экспорт ограничен группой и версией; несовпадающая группа источника и DEV в prod
+отклоняются. Настоящий контрольный набор не предоставлен и не создавался для T02.
+Подробнее: [инструкция экспорта](docs/results-export.md).
+
+Проверено для T02: **147 тестов успешно, 0 ошибок, 0 пропущено**, включая 13 новых
+проверок групп/экспорта, на отдельной `cqa_t02_test_1794084591463` (8 миграций).
+Проверено применение 008 поверх семи миграций с сохранением старой записи; разные группы
+и legacy с одним внешним ID имеют независимые UUID/оценки. `db:generate`, `db:validate`
+и `git diff --check` успешны. Основная БД и работающий Docker-стек здесь не менялись;
+для использования исправления нужно обновить Backend и применить миграцию командами выше.
 
 ## Подготовка тестовой базы в Windows PowerShell
 

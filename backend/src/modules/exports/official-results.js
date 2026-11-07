@@ -13,7 +13,7 @@ const types = ['boolean','boolean','boolean','scale','boolean','scale','boolean'
 const failure = (id, message) => ({conversation_id:id,status:'error',criteria:[],score:null,error:message});
 
 /** Read-only export of original model results. Human review never rewrites AI provenance. */
-export function createOfficialResults({teamName,model,manifest,evaluations,checklist,expectedCount,allowMock=false,dataset,confirmations=[]}) {
+export function createOfficialResults({teamName,model,manifest,evaluations,checklist,expectedCount,allowMock=false,dataset,confirmations=[],groupId}) {
   if (!Array.isArray(manifest) || manifest.length !== expectedCount) throw new Error('Dataset count does not match the expected split size');
   const ids = manifest.map(record => record?.externalId);
   if (ids.some(id => typeof id !== 'string' || !id.trim() || id !== id.trim()) || new Set(ids).size !== ids.length) throw new Error('Dataset IDs must be nonempty, original and unique');
@@ -29,7 +29,11 @@ export function createOfficialResults({teamName,model,manifest,evaluations,check
       && (c.type!=='scale' || isDeepStrictEqual([...c.scaleSteps.map(s=>s.value)].sort((a,b)=>a-b),i===3?[0,5,10,15,20]:[0,4,7,10]));
   });
   const byConversation = new Map();
+  const externalIds = new Set();
   for(const evaluation of evaluations){
+    if(groupId!==undefined && evaluation.conversation.groupId!==groupId) throw new Error('Export contains another dataset group');
+    if(externalIds.has(evaluation.conversation.externalId)) throw new Error('Duplicate external ID across export groups');
+    externalIds.add(evaluation.conversation.externalId);
     if(evaluation.checklistId!==parsed.id) throw new Error('Export contains another checklist version');
     if(byConversation.has(evaluation.conversationId)) throw new Error('Duplicate evaluation for conversation');
     byConversation.set(evaluation.conversationId,evaluation);

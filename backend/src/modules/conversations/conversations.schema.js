@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { groupIdSchema } from './groups.js';
 
 export const idParams = z.object({ id: z.uuid() }).strict();
 export const pagination = {
@@ -9,6 +10,7 @@ export const conversationQuery = z.object({
   ...pagination,
   language: z.enum(['RU', 'KZ', 'EN']).optional(),
   channel: z.string().trim().min(1).max(50).optional(),
+  group_id: groupIdSchema.optional(),
 }).strict();
 
 const timestamp = z.union([z.string().min(1).max(200), z.number().finite().nonnegative()]);
@@ -35,4 +37,5 @@ export const conversationRecord = z.object({
   });
 });
 
-export const importRequest = z.object({}).strict();
+export const importRequest = z.object({ group_id: groupIdSchema.default('DEV') }).strict();
+export const importQuery = z.object({}).strict();
