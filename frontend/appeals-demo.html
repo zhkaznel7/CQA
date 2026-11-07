@@ -5,11 +5,11 @@
 <title>Апелляции · SQA</title>
 <link rel="stylesheet" href="css/appeals.css">
 <main><header><p>SQA / Учебный диалог 04</p>
-<nav aria-label="Учебный сценарий"><a href="?case=T11">T11 · Подтверждение</a> · <a href="?case=T12">T12 · Изменение</a></nav><h1>Пересмотр оценки</h1></header>
+<nav aria-label="Учебный сценарий"><a href="?case=T11">T11 · Подтверждение</a> · <a href="?case=T12">T12 · Изменение</a> · <a href="?case=T13">T13 · Два критерия</a></nav><h1>Пересмотр оценки</h1></header>
 <section><h2>Диалог</h2><p><b>Клиент</b> Где посмотреть тарифы и как узнать дату их обновления?</p>
 <p><b>Оператор</b> Откройте раздел «Тарифы». Дата обновления указана под таблицей.</p></section>
 <div id="appeals"></div></main>
-<template id="appeal-view"><section><h2>Качество консультации · c4</h2>
+<template id="appeal-view"><section><h2 data-criterion></h2>
 <p>Исходная оценка ИИ <strong data-original></strong> · После рассмотрения <strong data-final></strong></p>
 <p>Учебный режим. Обращение и решение сохраняются в этом браузере.</p>
 <form data-request><label>Почему вы оспариваете оценку?<textarea name="comment" required></textarea></label><button>Подать апелляцию</button></form>
@@ -20,10 +20,20 @@
 <p role="status" aria-live="polite"></p></section></template>
 <script type="module">
 import {mountAppeals} from './js/appeals.js';
-const scenario = new URLSearchParams(location.search).get('case') === 'T12' ? 'T12' : 'T11';
+const requested = new URLSearchParams(location.search).get('case');
+const scenario = ['T12', 'T13'].includes(requested) ? requested : 'T11';
 document.querySelector(`a[href="?case=${scenario}"]`).setAttribute('aria-current', 'page');
-mountAppeals(document.querySelector('#appeals'), {
-  evaluationId: scenario === 'T12' ? 'demo-04-t12' : 'demo-04', criterionId:'c4', original:15, scale:[0,5,10,15,20],
-  template:document.querySelector('#appeal-view')
-});
+const evaluationId = {T11:'demo-04', T12:'demo-04-t12', T13:'demo-04-t13'}[scenario];
+const criteria = [
+  { criterionId:'c4', title:'Качество консультации', original:15, scale:[0,5,10,15,20] }
+];
+if (scenario === 'T13') {
+  criteria.push({ criterionId:'c6', title:'Ведение диалога', original:7, scale:[0,4,7,10] });
+}
+for (const criterion of criteria) {
+  const card = document.createElement('div');
+  document.querySelector('#appeals').append(card);
+  mountAppeals(card, { evaluationId, ...criterion, template:document.querySelector('#appeal-view') });
+  card.querySelector('[data-criterion]').textContent = criterion.title + ' · ' + criterion.criterionId;
+}
 </script></html>
