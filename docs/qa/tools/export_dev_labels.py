@@ -81,14 +81,19 @@ def build_export(source_bytes, rubric, markdown):
             question = EXCLUDED.get((cid, key))
             if question:
                 excluded.add((cid, key))
-            # Source citations are not a model's checked_range. Only a missing greeting or
-            # farewell here explicitly requires a checked range in the comparison report.
-            omission = key in {"01", "07"} and value is False
+            checked_range = None
+            if key == "01" and value is False:
+                first_operator = next(i for i, turn in enumerate(transcript) if turn["speaker"] == "operator")
+                if not any(span["start"] <= first_operator <= span["end"] for span in spans):
+                    raise ValueError(f"Первая реплика оператора отсутствует в ссылках c1: {cid}")
+                checked_range = {"start": first_operator, "end": first_operator}
+            elif key == "07" and value is False:
+                checked_range = spans[-1]
             results.append({
                 "criterion_id": key, "answer": value, "na": value is None,
                 "na_reason": explanation if value is None else None, "explanation": explanation,
                 "reference_ranges": spans,
-                "checked_range": {"start": spans[0]["start"], "end": spans[-1]["end"]} if omission else None,
+                "checked_range": checked_range,
                 "review": {"status": "pending", "disputed": bool(question), "question": question},
             })
         if [r["criterion_id"] for r in results] != list(criteria):
