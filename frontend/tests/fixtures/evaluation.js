@@ -22,9 +22,9 @@ const evaluation = {
     total: 50, grossError: false,
     sections: [{ key: 'service', name: 'Обслуживание', points: 50, maxPoints: 100 }],
     criteria: [
-      { key: 'contact', type: 'boolean', weight: 40, points: 50 },
-      { key: 'identification', type: 'boolean', weight: 20, points: 0 },
-      { key: 'closure', type: 'boolean', weight: 40, points: 0 },
+      { key: 'contact', type: 'boolean', value: true, weight: 40, points: 50 },
+      { key: 'identification', type: 'boolean', value: null, isNa: true, weight: 20, points: 0 },
+      { key: 'closure', type: 'boolean', value: false, weight: 40, points: 0 },
     ],
   },
   results: [
@@ -39,5 +39,5 @@ const evaluation = {
 }
 export const demoService = {
   async listVersions() { return [checklist] },
-  async evaluate() { return { checklist, evaluation, reused: false } },
+  async evaluate() { return { checklist, evaluation, currentScore: evaluation.score, reused: false } },
 }
