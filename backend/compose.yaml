@@ -1,0 +1,56 @@
+name: cqa
+
+services:
+  db:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cqa}
+      POSTGRES_DB: ${POSTGRES_DB:-cqa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  backend:
+    build: .
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      PGHOST: db
+      PGPORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-cqa}
+      POSTGRES_DB: ${POSTGRES_DB:-cqa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      JSON_BODY_LIMIT: ${JSON_BODY_LIMIT:-100kb}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-100}
+      IMPORT_SOURCE: ${IMPORT_SOURCE:-mock}
+      ORGANIZER_API_URL: ${ORGANIZER_API_URL:-}
+      ORGANIZER_API_TOKEN: ${ORGANIZER_API_TOKEN:-}
+      IMPORT_TIMEOUT_MS: ${IMPORT_TIMEOUT_MS:-10000}
+      IMPORT_MAX_BYTES: ${IMPORT_MAX_BYTES:-2097152}
+      IMPORT_MAX_RECORDS: ${IMPORT_MAX_RECORDS:-500}
+    ports:
+      - "127.0.0.1:${PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "docker/healthcheck.js"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    # A future AI service can join the default Compose network.
+
+volumes:
+  postgres_data:
