@@ -1,0 +1,15 @@
+__pycache__/
+predictions/
+report.json
+predictions-recheck-v2/
+report-recheck-v2.json
+predictions-ru025-schema-check/
+report-ru025-schema-check.json
+predictions-t05-na-v2-1/
+predictions-ru025-na-v2-1/
+report-ru025-na-v2-1.json
+predictions-ru025-v2-2/
+report-ru025-v2-2.json
+revalidated-ru025-v2-2/
+predictions-ru025-v2-3/
+report-ru025-v2-3.json

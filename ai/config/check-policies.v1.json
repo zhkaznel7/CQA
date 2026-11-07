@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "policies": [
+    {
+      "key": "need_discovery",
+      "criterionType": "boolean",
+      "descriptionAliases": [
+        "Да — оператор учёл известные детали и уточнил недостающее до ответа. N/A — данных для ответа хватало с самого начала.",
+        "Оператор учёл известные детали и уточнил недостающее до ответа."
+      ],
+      "checks": [
+        {
+          "id": "known_details_considered",
+          "group": 1,
+          "condition": "Оператор учёл известные детали"
+        },
+        {
+          "id": "missing_details_clarified_before_answer",
+          "group": 2,
+          "condition": "Оператор уточнил недостающее до ответа"
+        }
+      ]
+    }
+  ]
+}

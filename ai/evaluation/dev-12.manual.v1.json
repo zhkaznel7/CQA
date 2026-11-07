@@ -502,7 +502,7 @@
             }
           ],
           "checked_range": {
-            "start": 9,
+            "start": 0,
             "end": 15
           },
           "review": {
@@ -626,7 +626,7 @@
             }
           ],
           "checked_range": {
-            "start": 9,
+            "start": 0,
             "end": 11
           },
           "review": {
@@ -2190,7 +2190,7 @@
             }
           ],
           "checked_range": {
-            "start": 16,
+            "start": 10,
             "end": 18
           },
           "review": {
@@ -2589,7 +2589,7 @@
             }
           ],
           "checked_range": {
-            "start": 9,
+            "start": 0,
             "end": 10
           },
           "review": {
