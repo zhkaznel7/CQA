@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { prisma } from '../src/database/client.js';
 import { serializeChecklist } from '../src/modules/checklists/checklists.service.js';
-import { confirmApplicability } from '../src/modules/evaluations/applicability.js';
+import { confirmRecordedApplicability } from '../src/modules/evaluations/applicability.js';
 
 // Trusted operator CLI. There is deliberately no public confirmation-write endpoint.
 try {
@@ -18,7 +18,7 @@ try {
   const criterion = checklist.criteria.find((item) => item.key === args.criterion);
   const data = { conversationId: args.conversation, checklistId: args.checklist, criterionKey: args.criterion,
     rule: args.rule, confirmedBy: args.reviewer, reference: args.reference };
-  if (!criterion || !confirmApplicability(criterion, conversation, checklist, [data])) throw new Error('Rule not applicable');
+  if (!criterion || !confirmRecordedApplicability(criterion, conversation, checklist, [data])) throw new Error('Rule not applicable');
   await prisma.applicabilityConfirmation.create({ data });
   console.log('Independent N/A confirmation saved for this conversation, checklist version and criterion.');
 } catch {
