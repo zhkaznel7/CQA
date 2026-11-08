@@ -63,7 +63,9 @@ test('Gemini receives the configured rubric, quotes must match and a missed acti
   const results = await evaluateGemini(input,{model:'fixture',key:'fixture',request:async (_url,init)=>{
     const body = JSON.parse(init.body);
     assert.deepEqual(body.generationConfig.responseJsonSchema.properties.results.items.properties.value.enum,['yes','no']);
-    assert.deepEqual(JSON.parse(body.contents[0].parts[0].text).criteria,[c]);
+    const sent = JSON.parse(body.contents[0].parts[0].text);
+    assert.deepEqual(sent.criteria,[c]);
+    assert.deepEqual(sent.whole_transcript_range,{start:0,end:input.transcript.length-1});
     const output = {results:[modelRow]};
     return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(output)}]}}]});
   }});
