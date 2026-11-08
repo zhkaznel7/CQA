@@ -7,6 +7,10 @@
 ## Подключение Frontend
 
 Base URL: **http://127.0.0.1:3000**. Для REST используйте префикс `/api`.
+Общий Docker Compose также публикует Frontend на **http://127.0.0.1:5173/#/**.
+Его Nginx передаёт `/api` в `backend:3000`, поэтому в production-сборке Frontend
+не нужен абсолютный VITE_API_BASE_URL. Compose добавляет точные локальные origins
+Frontend в CORS, включая настраиваемый FRONTEND_PORT; `.env` в images не копируется.
 Браузер обращается только к Backend: AI вызывается сервером, итоговые баллы считает
 Backend. Авторизация для демонстрации не требуется.
 
@@ -63,13 +67,20 @@ N/A отображается отдельно от false/0: `isNa=true`, `answer
 Set-Location C:\Users\zhanel\CQA
 docker compose --env-file backend/.env -f backend/compose.yaml build ai
 docker compose --env-file backend/.env -f backend/compose.yaml build backend
+docker compose --env-file backend/.env -f backend/compose.yaml build frontend
 docker compose --env-file backend/.env -f backend/compose.yaml up -d --wait --wait-timeout 180
 Invoke-RestMethod 'http://127.0.0.1:3000/api/health'
+Invoke-RestMethod 'http://127.0.0.1:5173/api/health'
 ```
 
 Подготовка `.env`, seed v1/v2 и сохранение PostgreSQL volume описаны в
 [разделе Docker](#docker-desktop--powershell) и [API-инструкции](docs/api.md#запуск-через-docker-windows-powershell).
 Compose запускает командный mock, не Gemini. База не публикует порт наружу.
+Frontend работает от непривилегированного пользователя Nginx, с read-only rootfs
+и ограничением памяти 96 MiB. Все четыре сервиса имеют healthcheck. В списке
+диалогов можно выбрать точный group_id организаторов; фильтр сохраняется при
+пагинации и объединении псевдонимов каналов. Старый score=null отображается
+сообщением о несовместимом формате, без подмены на ноль и без изменения данных.
 
 Проверка документации: все 14 маршрутов проверены 27 HTTP-запросами; 19 JavaScript-блоков
 из docs/api.md извлечены и скомпилированы вместе, функции API и полный сценарий выполнены
@@ -482,8 +493,8 @@ BUG-003 подтверждён для voice call/voice/call, оценки и а�
 [docs/docker-final-bug003.md](docs/docker-final-bug003.md).
 История прежнего сбоя Desktop: [docs/docker-stage7-check.md](docs/docker-stage7-check.md).
 
-Общий Compose находится в `backend/compose.yaml`: PostgreSQL 18, Backend и командный
-AI mock. Требуется запущенный Docker Desktop с Linux containers и Compose v2+ (включая v5).
+Общий Compose находится в `backend/compose.yaml`: PostgreSQL 18, Backend, командный
+AI mock и Frontend. Требуется запущенный Docker Desktop с Linux containers и Compose v2+ (включая v5).
 
 ```powershell
 Set-Location C:\Users\zhanel\CQA\backend
@@ -506,6 +517,7 @@ docker compose config --quiet
 # Последовательная сборка уменьшает пиковую нагрузку при 1.9 GiB памяти.
 docker compose build ai
 docker compose build backend
+docker compose build frontend
 docker compose up -d --wait --wait-timeout 180
 docker compose ps
 docker compose logs --tail 50 backend
@@ -535,18 +547,20 @@ GET /health у командного mock нет. Это проверка гот�
 Порт PostgreSQL на Windows не опубликован. Backend доступен на `127.0.0.1:3000`;
 `PORT` в `.env` меняет внешний порт, при его изменении исправьте URL проверки.
 AI mock доступен на `127.0.0.1:8001`; `AI_PORT` меняет только внешний порт.
+Frontend доступен на `127.0.0.1:5173`; `FRONTEND_PORT` меняет его внешний порт.
 Внутри сети Backend всегда обращается к `http://ai:8001`, PostgreSQL — к `db:5432`.
 Volume `postgres_data` смонтирован в `/var/lib/postgresql` для PostgreSQL 18.
 
-Лимиты памяти контейнеров: Backend 512 MiB, PostgreSQL 384 MiB, AI 128 MiB,
-в сумме 1024 MiB. Оставшаяся память нужна Docker VM, ОС и сборке. Node heap ограничен
+Лимиты памяти контейнеров: Backend 512 MiB, PostgreSQL 384 MiB, AI 128 MiB, Frontend 96 MiB,
+в сумме 1120 MiB. Оставшаяся память нужна Docker VM, ОС и сборке. Node heap ограничен
 256/64 MiB для Backend/AI; PostgreSQL — shared_buffers 64 MB, max_connections 30.
 Заданы также лимиты CPU и количества процессов; журналы Backend и AI ротируются.
 Это настройки для демонстрации на небольших данных; нагрузочная проверка не выполнялась.
 
-Frontend подключается к `http://127.0.0.1:3000/api`. По умолчанию CORS допускает
-`http://localhost:5173` и `http://localhost:3000`. Если Frontend открыт на другом origin,
-задайте точное значение в CORS_ORIGINS и пересоздайте Backend через `docker compose up -d`.
+Frontend в Compose использует свой `/api` через Nginx. В Compose к CORS_ORIGINS
+добавляются точные origins `http://localhost:FRONTEND_PORT` и `http://127.0.0.1:FRONTEND_PORT`.
+При отдельном запуске Frontend можно использовать `http://127.0.0.1:3000/api`;
+для другого origin задайте точное значение в CORS_ORIGINS и пересоздайте Backend через `docker compose up -d`.
 
 Остановка и запуск с сохранением данных:
 
