@@ -5,6 +5,7 @@ import { evaluationService } from './service.js'
 
 const props = defineProps({
   conversationId: { type: String, required: true },
+  conversationLabel: String,
   service: { type: Object, default: () => evaluationService },
 })
 const emit = defineEmits(['evidence', 'result'])
@@ -12,7 +13,9 @@ const versions = shallowRef([])
 const history = ref([])
 const selected = ref('')
 const result = shallowRef(null)
-const busy = ref(false)
+const progress = ref('')
+const busy = computed(() => Boolean(progress.value))
+const notice = ref('')
 const error = ref('')
 const controller = new AbortController()
 
@@ -30,16 +33,17 @@ function evaluationError(cause) {
   return cause.message
 }
 
-async function run(action) {
+async function run(action, label = 'Получаем оценку…') {
   if (busy.value) return
-  busy.value = true
+  progress.value = label
+  notice.value = ''
   error.value = ''
   try {
     await action()
   } catch (cause) {
     if (!controller.signal.aborted) error.value = evaluationError(cause)
   } finally {
-    busy.value = false
+    progress.value = ''
   }
 }
 
@@ -54,20 +58,51 @@ function loadVersions() {
       selected.value = latest.checklistId
       await openSaved(latest)
     }
-  })
+  }, 'Загружаем чек-листы…')
 }
 
 async function openSaved(saved) {
-  result.value = await props.service.open(saved.id, saved.checklistId, controller.signal)
+  try {
+    result.value = await props.service.open(saved.id, saved.checklistId, controller.signal)
+  } catch (cause) {
+    if (cause.code !== 'EVALUATION_NOT_FOUND') throw cause
+    clearDeleted(saved.id)
+    return
+  }
   emit('result', result.value)
+}
+
+function clearDeleted(id) {
+  history.value = history.value.filter(item => item.id !== id)
+  result.value = null
+  emit('result', null)
+  notice.value = 'Оценка удалена. Можно запустить новую проверку.'
 }
 
 function chooseVersion() {
   result.value = null
   emit('result', null)
   error.value = ''
+  notice.value = ''
   const saved = history.value.find(item => item.checklistId === selected.value)
   if (saved) return run(() => openSaved(saved))
+}
+
+function removeEvaluation() {
+  if (!result.value || busy.value) return
+  const { evaluation, checklist } = result.value
+  const label = props.conversationLabel ?? props.conversationId
+  const question = `Удалить оценку диалога «${label}» по чек-листу «${checklist.name}», версия ${checklist.version}?\n\nДиалог и история апелляций сохранятся. Вы сможете запустить новую оценку.`
+  if (!window.confirm(question)) return
+  return run(async () => {
+    try {
+      await props.service.remove(evaluation.id, controller.signal)
+    } catch (cause) {
+      // Another reviewer may have already removed the selected result.
+      if (cause.code !== 'EVALUATION_NOT_FOUND') throw cause
+    }
+    clearDeleted(evaluation.id)
+  }, 'Удаляем оценку…')
 }
 
 function evaluate() {
@@ -126,7 +161,8 @@ onBeforeUnmount(() => controller.abort())
   <section class="evaluation-panel" aria-label="Оценка диалога">
     <h2>Оценка диалога</h2>
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="busy" role="status">{{ versions.length ? 'Получаем оценку…' : 'Загружаем чек-листы…' }}</p>
+    <p v-if="busy" role="status" class="progress">{{ progress }}</p>
+    <p v-else-if="notice" role="status">{{ notice }}</p>
     <div v-if="versions.length" class="evaluation-toolbar">
       <label>Версия чек-листа
         <select v-model="selected" :disabled="busy" @change="chooseVersion">
@@ -134,6 +170,7 @@ onBeforeUnmount(() => controller.abort())
         </select>
       </label>
       <button type="button" :disabled="busy" @click="evaluate">{{ history.some(item => item.checklistId === selected) ? 'Обновить результат' : 'Оценить' }}</button>
+      <button v-if="result" type="button" class="remove-evaluation" :disabled="busy" @click="removeEvaluation">Удалить оценку</button>
     </div>
     <template v-else-if="!busy">
       <p v-if="!error">Нет доступных версий чек-листа.</p>
@@ -187,8 +224,10 @@ onBeforeUnmount(() => controller.abort())
 .evaluation-toolbar label { flex:1 1 230px; max-width:490px; display:grid; gap:6px; color:#485b74; font-size:13px; font-weight:600 }
 .evaluation-toolbar select { width:100%; min-width:0 }
 .evaluation-toolbar button { background:#1768d5; color:white; border-color:#1768d5 }
+.evaluation-toolbar .remove-evaluation { background:white; color:#9e2b27; border:1px solid #d9a6a3 }
+.evaluation-toolbar .remove-evaluation:enabled:hover { background:#fff1f0; border-color:#b64741 }
 .evaluation-panel [role=status] { display:flex; align-items:center; gap:8px; color:#536b87; font-size:13px }
-.evaluation-panel [role=status]::before { content:''; width:12px; height:12px; border:2px solid #cfdded; border-top-color:#2474d7; border-radius:50%; animation:eval-spin .7s linear infinite }
+.evaluation-panel .progress::before { content:''; width:12px; height:12px; border:2px solid #cfdded; border-top-color:#2474d7; border-radius:50%; animation:eval-spin .7s linear infinite }
 @keyframes eval-spin { to {transform:rotate(360deg)} }
 .evaluation-panel article { border-top:1px solid #e2e8ef; margin-top:18px; padding-top:17px }
 .evaluation-panel h3 { margin:0 0 8px; font-size:16px }

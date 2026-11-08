@@ -10,7 +10,7 @@ export function evaluationsRouter(database, aiClient) {
   router.get('/', async (req, res) => {
     const { conversationId } = parse(evaluationRequest.pick({ conversationId: true }), req.query);
     const data = await database.evaluation.findMany({
-      where: { conversationId, status: 'COMPLETED' },
+      where: { conversationId, status: 'COMPLETED', deletedAt: null },
       select: { id: true, checklistId: true, createdAt: true },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     });
@@ -21,5 +21,9 @@ export function evaluationsRouter(database, aiClient) {
     res.status(result.created ? 201 : 200).location(`/api/evaluations/${result.data.id}`).json({ data: result.data, reused: !result.created });
   });
   router.get('/:id', async (req, res) => res.json({ data: await service.get(parse(idParams, req.params).id) }));
+  router.delete('/:id', async (req, res) => {
+    await service.remove(parse(idParams, req.params).id);
+    res.status(204).end();
+  });
   return router;
 }

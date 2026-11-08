@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -89,6 +90,7 @@ model Evaluation {
   status         EvaluationStatus  @default(DRAFT)
   createdAt      DateTime          @default(now()) @db.Timestamptz(3)
   completedAt    DateTime?         @db.Timestamptz(3)
+  deletedAt      DateTime?         @db.Timestamptz(3)
   provider       String?          @db.VarChar(20)
   model          Json?            @db.JsonB
   transport      String?          @db.VarChar(20)
@@ -98,7 +100,7 @@ model Evaluation {
   checklist      Checklist         @relation(fields: [checklistId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   results        CriterionResult[]
 
-  @@unique([conversationId, checklistId])
+  @@unique([conversationId, checklistId], map: "Evaluation_active_pair_key", where: { deletedAt: null })
   @@unique([id, checklistId])
   @@index([checklistId])
 }

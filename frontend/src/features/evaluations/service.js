@@ -1,4 +1,4 @@
-import { getJson, postJson } from '../../shared/api.js'
+import { deleteRecord, getJson, postJson } from '../../shared/api.js'
 
 // Each accepted appeal card contains the current score for the entire evaluation.
 async function currentScore(evaluation, signal) {
@@ -28,6 +28,10 @@ export const evaluationService = {
 
   async history(conversationId, signal) {
     return (await getJson('/evaluations?' + new URLSearchParams({ conversationId }), signal)).data
+  },
+
+  remove(evaluationId, signal) {
+    return deleteRecord('/evaluations/' + encodeURIComponent(evaluationId), signal)
   },
 
   async open(evaluationId, checklistId, signal) {

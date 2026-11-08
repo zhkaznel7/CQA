@@ -29,13 +29,13 @@ export function evaluationService(database, aiClient) {
   const inFlight = new Map();
   const service = {
     async get(id) {
-      const row = await database.evaluation.findUnique({ where: { id }, include });
+      const row = await database.evaluation.findUnique({ where: { id, deletedAt: null }, include });
       if (!row) throw new ApiError(404, 'EVALUATION_NOT_FOUND', 'Evaluation not found');
       return serialize(row);
     },
     async create({ conversationId, checklistId }) {
-      const where = { conversationId_checklistId: { conversationId, checklistId } };
-      const existing = await database.evaluation.findUnique({ where, include });
+      const where = { conversationId, checklistId, deletedAt: null };
+      const existing = await database.evaluation.findFirst({ where, include });
       if (existing) return completed(existing);
       const [conversation, row] = await Promise.all([
         database.conversation.findUnique({ where: { id: conversationId } }),
@@ -62,7 +62,7 @@ export function evaluationService(database, aiClient) {
       return database.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "Conversation" WHERE id = ${conversationId}::uuid FOR UPDATE`;
         await tx.$queryRaw`SELECT id FROM "Checklist" WHERE id = ${checklistId}::uuid FOR UPDATE`;
-        const concurrent = await tx.evaluation.findUnique({ where, include });
+        const concurrent = await tx.evaluation.findFirst({ where, include });
         if (concurrent) return completed(concurrent);
         const currentConversation = await tx.conversation.findUnique({ where: { id: conversationId } });
         const currentChecklist = await tx.checklist.findUnique({ where: { id: checklistId }, include: { criteria: true } });
@@ -94,6 +94,17 @@ export function evaluationService(database, aiClient) {
   };
   return {
     get: service.get,
+    async remove(id) {
+      await database.$transaction(async tx => {
+        const [evaluation] = await tx.evaluation.updateManyAndReturn({
+          where: { id, status: 'COMPLETED', deletedAt: null },
+          data: { deletedAt: new Date() },
+          select: { conversationId: true, checklistId: true },
+        });
+        if (!evaluation) throw new ApiError(404, 'EVALUATION_NOT_FOUND', 'Результат оценки не найден');
+        await tx.evaluationFailure.deleteMany({ where: evaluation });
+      });
+    },
     async create(input) {
       const key = `${input.conversationId}:${input.checklistId}`;
       const running = inFlight.get(key);

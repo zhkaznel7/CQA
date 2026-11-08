@@ -5,9 +5,8 @@ export function apiUrl(path) {
 }
 
 async function requestJson(path, { signal, body, method }) {
-  const options = { signal, headers: { Accept: 'application/json' } }
+  const options = { method, signal, headers: { Accept: 'application/json' } }
   if (body !== undefined) {
-    options.method = method
     options.headers['Content-Type'] = 'application/json'
     options.body = JSON.stringify(body)
   }
@@ -19,6 +18,7 @@ async function requestJson(path, { signal, body, method }) {
     error.code = payload?.error?.code
     throw error
   }
+  if (method === 'DELETE' && response.status === 204) return
   if (!response.headers.get('content-type')?.includes('application/json')) {
     throw new Error('Сервер вернул неожиданный формат. Проверьте адрес API.')
   }
@@ -39,4 +39,8 @@ export function putJson(path, body, signal) {
 
 export function patchJson(path, body, signal) {
   return requestJson(path, { signal, body, method: 'PATCH' })
+}
+
+export function deleteRecord(path, signal) {
+  return requestJson(path, { method: 'DELETE', signal })
 }

@@ -14,6 +14,10 @@ const player = ref(null)
 const fallback = ref(false)
 const assessment = shallowRef(null)
 const recording = computed(() => recordingFor(props.conversation, assessment.value))
+function updateAssessment(value) {
+  assessment.value = value
+  activeRange.value = null
+}
 async function showEvidence(range) {
   const turns = props.conversation.transcript
   if (!Number.isInteger(range.start) || !Number.isInteger(range.end) ||
@@ -72,7 +76,7 @@ async function showEvidence(range) {
           </li>
         </ol>
       </section>
-      <EvaluationPanel class="dialog-surface dialog-evaluation" :key="conversation.id" :conversation-id="conversation.id" :service="service" @result="assessment = $event" @evidence="showEvidence" />
+      <EvaluationPanel class="dialog-surface dialog-evaluation" :key="conversation.id" :conversation-id="conversation.id" :conversation-label="conversation.externalId" :service="service" @result="updateAssessment" @evidence="showEvidence" />
     </div>
   </div>
 </template>

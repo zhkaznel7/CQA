@@ -12,7 +12,7 @@ export async function readFailures(database, checklistId, manifest) {
 export function readExportEvaluations(database, checklistId, groupId, manifest) {
   groupIdSchema.parse(groupId);
   return database.evaluation.findMany({
-    where: { checklistId, conversation: { groupId, externalId: { in: manifest.map(record => record.externalId) } } },
+    where: { checklistId, deletedAt: null, conversation: { groupId, externalId: { in: manifest.map(record => record.externalId) } } },
     include: { conversation: true, results: { include: { criterion: { select: { key: true } } } } },
   });
 }

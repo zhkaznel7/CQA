@@ -46,7 +46,8 @@ async function card(tx, id) {
   const result = appeal.criterionResult;
   return {
     ...summary(appeal),
-    reviewable: Boolean(state), reviewError,
+    reviewable: Boolean(state) && !evaluation.deletedAt,
+    reviewError: evaluation.deletedAt ? 'Результат оценки удалён.' : reviewError,
     originalScore: evaluation.score, finalScore: state?.finalScore ?? null,
     beforeScore: appeal.beforeScore, afterScore: appeal.afterScore,
     originalResult: { answer: result.answer, isNa: result.isNa, naReason: result.naReason,
@@ -67,6 +68,7 @@ export function appealService(database) {
       return database.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "Evaluation" WHERE id = ${evaluationId}::uuid FOR UPDATE`;
         const evaluation = await evaluationForReview(tx, evaluationId);
+        if (evaluation.deletedAt) throw new ApiError(404, 'EVALUATION_NOT_FOUND', 'Результат оценки удалён');
         if (evaluation.status !== 'COMPLETED') throw new ApiError(409, 'EVALUATION_NOT_COMPLETED', 'Only completed evaluations can be appealed');
         const result = evaluation.results.find((item) => item.criterionId === criterionId);
         if (!result) throw new ApiError(404, 'CRITERION_RESULT_NOT_FOUND', 'Criterion result does not belong to this evaluation');
@@ -102,6 +104,7 @@ export function appealService(database) {
         const appeal = await tx.appeal.findUnique({ where: { id }, include: summaryInclude });
         if (appeal.status !== 'PENDING') throw new ApiError(409, 'APPEAL_ALREADY_DECIDED', 'Appeal has already been decided');
         const evaluation = await evaluationForReview(tx, evaluationId);
+        if (evaluation.deletedAt) throw new ApiError(409, 'EVALUATION_DELETED', 'Результат оценки удалён');
         const state = reviewState(evaluation);
         const result = appeal.criterionResult;
         const criterion = state.checklist.criteria.find((item) => item.key === result.criterion.key);

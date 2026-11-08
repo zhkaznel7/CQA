@@ -9,6 +9,69 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it('удаляет через API только показанную оценку и запускает новую для той же версии', async () => {
+  const { checklist, evaluation } = await demoService.evaluate()
+  const previous = { ...checklist, id: 'previous', version: 1 }
+  const current = { ...checklist, version: 2 }
+  const confirm = vi.fn().mockReturnValue(false)
+  vi.stubGlobal('confirm', confirm)
+  let attempts = 0
+  let finishDelete
+  const json = data => Response.json(data)
+  const request = vi.fn(async (url, options) => {
+    if (url === '/api/evaluations/' + evaluation.id && options.method === 'DELETE') {
+      attempts++
+      if (attempts === 1) return Response.json({ error: { message: 'Ошибка удаления' } }, { status: 500 })
+      return new Promise(resolve => { finishDelete = () => resolve(new Response(null, { status: 204 })) })
+    }
+    if (url.startsWith('/api/checklists?')) return json({ data: [current, previous], pagination: { totalPages: 1 } })
+    if (url === '/api/checklists/' + current.id) return json({ data: current })
+    if (url.startsWith('/api/evaluations?')) return json({ data: [
+      { id: evaluation.id, checklistId: current.id }, { id: 'other-score', checklistId: previous.id },
+    ] })
+    if (url.startsWith('/api/appeals?')) return json({ data: [], pagination: { totalPages: 0 } })
+    if (url === '/api/evaluations/' + evaluation.id) return json({ data: evaluation })
+    if (url === '/api/evaluations' && options.method === 'POST') {
+      expect(JSON.parse(options.body)).toEqual({ conversationId: conversation.id, checklistId: current.id })
+      return json({ data: { ...evaluation, id: 'replacement' }, reused: false })
+    }
+    throw Error('Неожиданный запрос ' + url)
+  })
+  vi.stubGlobal('fetch', request)
+  view = mount(ConversationCard, { props: { conversation } })
+  await flushPromises()
+  const remove = () => view.get('.remove-evaluation').trigger('click')
+  await remove()
+  expect(confirm.mock.calls[0][0]).toContain(conversation.externalId)
+  expect(confirm.mock.calls[0][0]).toContain('версия 2')
+  expect(attempts).toBe(0)
+  confirm.mockReturnValue(true)
+  await remove()
+  await flushPromises()
+  expect(view.get('[role=alert]').text()).toContain('Ошибка удаления')
+  expect(view.find('.score-table').exists()).toBe(true)
+  await view.get('.evidence-link').trigger('click')
+  await remove()
+  expect(view.get('.remove-evaluation').element.disabled).toBe(true)
+  await remove()
+  expect(attempts).toBe(2)
+  finishDelete()
+  await flushPromises()
+  expect(view.get('[role=status]').text()).toContain('Оценка удалена')
+  expect(view.find('.score-table').exists()).toBe(false)
+  expect(view.find('mark').exists()).toBe(false)
+  expect(view.find('.remove-evaluation').exists()).toBe(false)
+  expect(view.get('.transcript').findAll('li')).toHaveLength(conversation.transcript.length)
+  expect(view.get('select').element.value).toBe(current.id)
+  expect(view.get('option[value="previous"]').text()).toContain('оценено')
+  const retry = view.get('.evaluation-toolbar button')
+  expect(retry.text()).toBe('Оценить')
+  await retry.trigger('click')
+  await flushPromises()
+  expect(view.find('.score-table').exists()).toBe(true)
+  expect(view.find('.remove-evaluation').exists()).toBe(true)
+})
+
 it('открывает существующую оценку при переходе в карточку и не вызывает модель', async () => {
   const saved = await demoService.evaluate()
   const service = {

@@ -27,11 +27,11 @@ test('uploaded control group exports actual model, one-based evidence, and faile
     await prisma.$disconnect();
   });
   await once(server, 'listening');
-  async function request(path, body) {
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api${path}`, body ? {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    } : {});
-    return { status: response.status, json: await response.json() };
+  async function request(path, body, method = body ? 'POST' : 'GET') {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api${path}`, {
+      method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    return { status: response.status, json: response.status === 204 ? null : await response.json() };
   }
   const records = Array.from({ length: 10 }, (_, i) => ({
     conversation_id: 'sample-' + i, language: 'EN', channel: 'agent chat', audio_url: null,
@@ -63,4 +63,34 @@ test('uploaded control group exports actual model, one-based evidence, and faile
   assert.equal(row.criteria[2].value, null);
   assert.deepEqual(row.criteria[2].evidence_turns, [1]);
   assert.match(file.results.find(entry => entry.conversation_id === 'sample-1').error, /AI_UNAVAILABLE/);
+
+  await t.test('deleting one result preserves its conversation and appeal, and permits a fresh evaluation', async () => {
+    const old = success.json.data;
+    const dialogPath = '/conversations/' + old.conversationId;
+    const originalDialog = (await request(dialogPath)).json;
+    const criterionId = old.results[0].criterionId;
+    const appeal = (await request('/appeals', { evaluationId: old.id, criterionId, comment: 'Check this answer' })).json.data;
+    const firstResult = '/evaluations/' + old.id;
+    const deletions = await Promise.all([request(firstResult, undefined, 'DELETE'), request(firstResult, undefined, 'DELETE')]);
+    assert.deepEqual(deletions.map(r => r.status).sort(), [204, 404]);
+    assert.equal((await request(firstResult)).status, 404);
+    assert.deepEqual((await request(dialogPath)).json, originalDialog);
+    assert.deepEqual((await request('/evaluations?conversationId=' + old.conversationId)).json.data, []);
+    const missing = (await request('/exports/prod?' + query)).json.results.find(r => r.conversation_id === 'sample-0');
+    assert.equal(missing.status, 'error');
+    const oldAppealPath = '/appeals/' + appeal.id;
+    const archivedAppeal = (await request(oldAppealPath)).json.data;
+    assert.equal(archivedAppeal.reviewable, false);
+    assert.deepEqual(archivedAppeal.originalScore, old.score);
+    assert.equal((await request(oldAppealPath + '/decision', { decision: 'CONFIRM', reason: 'Reviewed' }, 'PATCH')).status, 409);
+    assert.equal((await request('/appeals', { evaluationId: old.id, criterionId, comment: 'Duplicate' })).status, 404);
+    const [a, b] = await Promise.all([evaluate('sample-0'), evaluate('sample-0')]);
+    assert.deepEqual([a.status, b.status].sort(), [200, 201]);
+    assert.equal(a.json.data.id, b.json.data.id);
+    assert.notEqual(a.json.data.id, old.id);
+    assert.equal(a.json.data.checklistId, old.checklistId);
+    assert.equal(a.json.data.conversationId, old.conversationId);
+    const newRow = (await request('/exports/prod?' + query)).json.results.find(r => r.conversation_id === 'sample-0');
+    assert.equal(newRow.status, 'ok');
+  });
 });
