@@ -12,7 +12,16 @@ if (provider === 'local') {
     throw Error('Для AI_PROVIDER=gemini задайте GEMINI_API_KEY и идентификатор модели GEMINI_MODEL.');
   }
   const onUsage = usage => console.log(JSON.stringify({event:'model_usage', model, ...usage}));
-  startServer({mode: 'external_api', name: model}, input => evaluateGemini(input, {key, model, onUsage}));
+  startServer({mode: 'external_api', name: model}, async input => {
+    try {
+      return await evaluateGemini(input, {key, model, onUsage});
+    } catch (error) {
+      if (error.code === 'INVALID_MODEL_OUTPUT') {
+        console.warn(JSON.stringify({event: 'invalid_model_output', model, reason: error.message}));
+      }
+      throw error;
+    }
+  });
 } else {
   throw Error('AI_PROVIDER должен быть local или gemini.');
 }

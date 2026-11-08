@@ -58,19 +58,20 @@ test('checklist changes apply to custom phrases, key changes and scale values',(
 test('Gemini receives the configured rubric, quotes must match and a missed action requires a range',async()=>{
   const c = {...official.criteria[0],key:'custom',description:'Поприветствовал клиента.'};
   const input = {...request,checklist:{...official,criteria:[c]}};
-  const modelRow = {criterion_id:c.key, applicability:{met:false,reason:'Применимо.'},checks:[
-    {group:1,condition:'Приветствие',met:true,reason:'Оператор поздоровался.',turnIndexes:[2]}],
-    levels:[], evidence:[{turnIndex:2,quote:'Здравствуйте'}], explanation:'Есть приветствие.', omission:false,
-    checked_range:null, limitations:[]};
+  const modelRow = {criterion_id:c.key, value:'yes', rationale:'Оператор поздоровался.',
+    evidence_turns:[2], checked_range:{start:2,end:2}};
   const results = await evaluateGemini(input,{model:'fixture',key:'fixture',request:async (_url,init)=>{
     const body = JSON.parse(init.body);
+    assert.deepEqual(body.generationConfig.responseJsonSchema.properties.results.items.properties.value.enum,['yes','no']);
     assert.deepEqual(JSON.parse(body.contents[0].parts[0].text).criteria,[c]);
-    const output = {review:{requests:[],issues:[]},results:[modelRow]};
+    const output = {results:[modelRow]};
     return Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(output)}]}}]});
   }});
   assert.equal(results[0].answer,true);
-  assert.throws(()=>validateResults([{...modelRow,evidence:[{turnIndex:2,quote:'Invented'}]}],input),/цитата/);
-  assert.throws(()=>validateResults([{...modelRow,checks:[{...modelRow.checks[0],met:false}]}],input),/checked_range/);
+  assert.equal(results[0].evidence[0].quote,input.transcript[2].text);
+  assert.throws(()=>validateResults([{...modelRow,value:'N/A'}],input),/ответ/);
+  assert.throws(()=>validateResults([{...modelRow,evidence_turns:[999]}],input),/доказательство/);
+  assert.throws(()=>validateResults([{...modelRow,value:'no',checked_range:null}],input),/checked_range/);
 });
 
 test('HTTP carries model identity and a distinct error code for unsupported criteria',async t=>{

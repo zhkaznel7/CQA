@@ -83,8 +83,27 @@ it('открывает существующую оценку при перехо
   view = mount(ConversationCard, { props: { conversation, service } })
   await flushPromises()
   expect(view.get('tbody tr').text()).toContain('50 / 100')
+  expect(view.get('.model-details').findAll('dd').map(field => field.text())).toEqual(['Не указана', 'Не указан'])
+  expect(view.text()).toContain('Оценка тестовой модели сервера')
   expect(service.open).toHaveBeenCalledWith(saved.evaluation.id, saved.checklist.id, expect.any(AbortSignal))
   expect(service.evaluate).not.toHaveBeenCalled()
+})
+
+it.each([
+  ['external_api', 'gemini-2.5-flash', 'Внешний API'],
+  ['local', 'local-reviewer', 'Локальная обработка'],
+  ['hybrid', 'hybrid-reviewer', 'Гибридная обработка'],
+])('показывает сохранённую модель и источник для %s', async (mode, name, source) => {
+  const saved = await demoService.open()
+  const service = {
+    ...demoService,
+    history: async () => [{ id: saved.evaluation.id, checklistId: saved.checklist.id }],
+    open: async () => ({ ...saved, evaluation: { ...saved.evaluation, isMock: false, model: { mode, name } } }),
+  }
+  view = mount(ConversationCard, { props: { conversation, service } })
+  await flushPromises()
+  expect(view.get('.model-details').findAll('dd').map(field => field.text())).toEqual([name, source])
+  expect(view.text()).not.toContain('Оценка тестовой модели сервера')
 })
 
 it('показывает N/A и переводит фокус к источнику оценки, включая диапазон', async () => {

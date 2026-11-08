@@ -18,6 +18,11 @@ const busy = computed(() => Boolean(progress.value))
 const notice = ref('')
 const error = ref('')
 const controller = new AbortController()
+const modelSources = new Map([
+  ['local', 'Локальная обработка'],
+  ['external_api', 'Внешний API'],
+  ['hybrid', 'Гибридная обработка'],
+])
 
 function evaluationError(cause) {
   const keys = cause.details?.map(item => item.criterionKey).filter(Boolean).join(', ')
@@ -179,6 +184,10 @@ onBeforeUnmount(() => controller.abort())
     <p v-if="result && !hasScore" role="alert">Сохранённая оценка имеет несовместимый формат или не содержит баллов. Исходная оценка не изменена. Выберите другую версию чек-листа.</p>
     <article v-if="result && hasScore">
       <h3>Результат · {{ result.checklist.name }} · v{{ result.checklist.version }}</h3>
+      <dl class="model-details">
+        <div><dt>Модель</dt><dd>{{ result.evaluation.model?.name || 'Не указана' }}</dd></div>
+        <div><dt>Источник</dt><dd>{{ modelSources.get(result.evaluation.model?.mode) ?? 'Не указан' }}</dd></div>
+      </dl>
       <p v-if="result.evaluation.isMock">Оценка тестовой модели сервера</p>
       <p v-if="result.reused">Получена ранее сохранённая оценка.</p>
       <p v-if="result.reviewError" role="alert">Не удалось получить действующую оценку. {{ result.reviewError }} Нажмите «Оценить», чтобы повторить.</p>
@@ -231,6 +240,10 @@ onBeforeUnmount(() => controller.abort())
 @keyframes eval-spin { to {transform:rotate(360deg)} }
 .evaluation-panel article { border-top:1px solid #e2e8ef; margin-top:18px; padding-top:17px }
 .evaluation-panel h3 { margin:0 0 8px; font-size:16px }
+.model-details { display:flex; flex-wrap:wrap; gap:4px 20px; margin:0; font-size:14px }
+.model-details div { display:flex; gap:6px; min-width:0 }
+.model-details dt { color:#536b87 }
+.model-details dd { margin:0; overflow-wrap:anywhere }
 .score-table { margin:14px 0; overflow:auto }
 .score-table table { width:100%; border-collapse:collapse; font-size:13px; text-align:left; font-variant-numeric:tabular-nums }
 .score-table th,.score-table td { padding:9px 11px; border-bottom:1px solid #e3eaf2; text-align:left; overflow-wrap:anywhere }
