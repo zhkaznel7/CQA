@@ -1,0 +1,145 @@
+{
+  "source": "Team draft reference, origin/feat/scoring @ 6a25535, ai/evaluation/dev-12.manual.v1.json",
+  "review": "Pending; disputed labels are excluded. No organizer ground truth.",
+  "conversations": [
+    {
+      "id": "p1-ru-001",
+      "sha256": "e3de4212af9e11b747848f6d053d64a4348bc4ed0639820a437d4f6c84bdad74",
+      "expected": {
+        "01": true,
+        "02": null,
+        "03": null,
+        "04": 20,
+        "05": true,
+        "06": 10,
+        "08": false
+      }
+    },
+    {
+      "id": "p1-ru-009",
+      "sha256": "f2956bff1597b01c79a44eb67bf6c4da0fd03bfeec83f77940e1a9cba94382ea",
+      "expected": {
+        "01": true,
+        "03": false,
+        "06": 4,
+        "07": true
+      }
+    },
+    {
+      "id": "p1-ru-022",
+      "sha256": "3700a373f2fa64fa71e1f6e0aadd4bc90d09fca3996b694f1c14439d64ea788a",
+      "expected": {
+        "01": true,
+        "03": null,
+        "04": 0,
+        "07": false,
+        "08": true
+      }
+    },
+    {
+      "id": "p1-ru-025",
+      "sha256": "56a059641e96f387e2e8f81b09f7d8e1df880a110b35b355abca0f0ebc5f361e",
+      "expected": {
+        "01": true,
+        "04": null,
+        "05": true,
+        "06": 10,
+        "07": null,
+        "08": false
+      }
+    },
+    {
+      "id": "p1-kz-003",
+      "sha256": "98edab5f83e7e1a9735c7fa175ce83103ffc62a01d254570083babf6e3283ae7",
+      "expected": {
+        "01": true,
+        "03": true,
+        "04": 20,
+        "05": true,
+        "06": 10,
+        "07": true,
+        "08": false
+      }
+    },
+    {
+      "id": "p1-kz-005",
+      "sha256": "713310b3a84de811e7958452df48c6280da9618006945fbc3fd20c9236e0390a",
+      "expected": {
+        "01": true,
+        "02": null,
+        "03": null,
+        "04": 20,
+        "06": 4,
+        "07": false,
+        "08": false
+      }
+    },
+    {
+      "id": "p1-kz-008",
+      "sha256": "d775e5fab731f28d099cc4b180bd01ba19a6a16480bdc793b7af84ad7d95c674",
+      "expected": {
+        "01": false,
+        "03": null,
+        "04": 20,
+        "08": false
+      }
+    },
+    {
+      "id": "p1-kz-013",
+      "sha256": "d2627bab9e8f3ae1f1b14ab2afe38f492b608f9d6e6be4c14c6371c101a66f68",
+      "expected": {
+        "01": true,
+        "02": null,
+        "03": null,
+        "06": 10,
+        "07": false,
+        "08": true
+      }
+    },
+    {
+      "id": "p1-en-006",
+      "sha256": "ce6267e97848c8bda6b9cef96dbbff9cab46cd735d55d503d66996ba2b22602b",
+      "expected": {
+        "01": true,
+        "03": true,
+        "04": 20,
+        "06": 10,
+        "07": true,
+        "08": false
+      }
+    },
+    {
+      "id": "p1-en-008",
+      "sha256": "4c3c9e7581c6d95dbc07d8df6ffb9f3cf5cae7e033c8b481d68c3e08e4d5b616",
+      "expected": {
+        "01": true,
+        "02": null,
+        "03": null,
+        "05": true,
+        "06": 10,
+        "08": false
+      }
+    },
+    {
+      "id": "p1-en-014",
+      "sha256": "7ede32e04b4ed5f8ad4c4d51cd24f61af066297da8ae61d942fa908e8b571180",
+      "expected": {
+        "01": true,
+        "03": false,
+        "05": false
+      }
+    },
+    {
+      "id": "p1-en-015",
+      "sha256": "7948da3991714b8ec9c391edcc947d51c1890dca58c6562c566fd01b15d0f5a1",
+      "expected": {
+        "01": false,
+        "02": false,
+        "03": null,
+        "06": 4,
+        "07": false,
+        "08": false
+      }
+    }
+  ]
+}

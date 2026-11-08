@@ -1,0 +1,75 @@
+name: cqa-hackathon
+
+services:
+  db:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_DB: cqa
+      POSTGRES_USER: cqa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cqa-local-demo}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "cqa", "-d", "cqa"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  ai:
+    build:
+      context: ./backend
+      dockerfile: ai/Dockerfile
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8001
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+
+  backend:
+    build: ./backend
+    environment:
+      NODE_ENV: production
+      PGHOST: db
+      PGPORT: 5432
+      POSTGRES_DB: cqa
+      POSTGRES_USER: cqa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cqa-local-demo}
+      AI_MODE: http
+      AI_SERVICE_KIND: ai
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      AI_BASE_URL: http://ai:8001
+      AI_TIMEOUT_MS: 100000
+      IMPORT_SOURCE: ${IMPORT_SOURCE:-mock}
+      ORGANIZER_API_URL: ${ORGANIZER_API_URL:-}
+      JSON_BODY_LIMIT: 3mb
+      RATE_LIMIT_MAX: 600
+      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-5174},http://127.0.0.1:${FRONTEND_PORT:-5174}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-3001}:3000"
+    volumes:
+      - ./results:/app/results
+    depends_on:
+      db:
+        condition: service_healthy
+      ai:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "docker/healthcheck.js"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  frontend:
+    build:
+      context: .
+      dockerfile: backend/docker/frontend.Dockerfile
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5174}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:

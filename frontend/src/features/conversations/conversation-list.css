@@ -1,0 +1,45 @@
+.dialog-registry { color: #172c44; min-width: 0; }
+.dialog-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+.import-link { padding: 8px 13px; border: 1px solid #c7d7ea; border-radius: 6px; background: white; color: #165eaf; text-decoration: none; font-size: 13px; font-weight: 600; }
+.dialog-toolbar form { flex-basis: 100%; display: flex; align-items: end; gap: 8px; flex-wrap: wrap; }
+.dialog-toolbar form label { display: grid; gap: 5px; color: #52647a; font-size: 13px; }
+.dialog-page-heading h1 { color: #17283f; font-size: clamp(26px, 3vw, 34px); line-height: 1.2; letter-spacing: -.04em; margin: 0 0 6px; }
+.dialog-page-heading p { margin: 0; color: #617188; font-size: 14px; }
+.dialog-panel { overflow: hidden; border: 1px solid #dee5ee; border-radius: 12px; background: #fff; box-shadow: 0 2px 5px #122b4910; }
+.dialog-toolbar, .dialog-table-footer { padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.dialog-segments { display: flex; gap: 3px; padding: 3px; border-radius: 8px; background: #f1f4f8; }
+.dialog-segments button, .dialog-pager button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 6px; background: transparent; color: #4d6179; font: inherit; font-size: 13px; font-weight: 550; padding: 6px 10px; cursor: pointer; transition: color .16s, background .16s, box-shadow .16s; }
+.dialog-segments button[aria-pressed=true] { background: #fff; color: #145fba; box-shadow: 0 1px 4px #20385325; }
+.dialog-segments button:hover, .dialog-pager button:enabled:hover { background: #e4edfa; color: #145fba; }
+.dialog-toolbar svg, .dialog-pager svg { width: 16px; height: 16px; }
+.dialog-language { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid #d6deea; border-radius: 7px; color: #50647d; }
+.dialog-language select { border: 0; box-shadow: none; min-height: 32px; padding: 4px; background-color: transparent; color: #3a4c62; font: inherit; font-size: 13px; cursor: pointer; }
+.dialog-table-scroll { overflow: auto; }
+.dialog-table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; white-space: nowrap; }
+.dialog-table th, .dialog-table td { padding: 10px 14px; border: 0; border-bottom: 1px solid #e8edf3; }
+.dialog-table th:first-child, .dialog-table td:first-child { padding-left: 20px; }
+.dialog-table th { padding-block: 10px; color: #55677d; font-weight: 600; background: #f6f8fb; border-top: 1px solid #e8edf3; }
+.dialog-table td { color: #44566d; }
+.dialog-table tr:hover td, .dialog-table tr:focus-within td { background-color: #f1f7ff; }
+.dialog-link { display: inline-flex; align-items: center; gap: 10px; color: #155eac; text-decoration: none; font-weight: 620; }
+.dialog-link:hover { text-decoration: underline; }
+.dialog-channel-icon { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; color: #286ac4; background: #ebf2ff; }
+.dialog-channel-icon svg { width: 16px; height: 16px; }
+.dialog-channel-icon.is-call { color: #097f82; background: #e1f5f2; }
+.dialog-group { background: #f2f4f8; color: #526176; border-radius: 4px; padding: 3px 7px; font-size: 11px; font-weight: 650; }
+.dialog-table-footer { color: #687b91; font-size: 12px; min-height: 54px; }
+.dialog-table-footer strong { color: #30445c; padding-left: 4px; }
+.dialog-pager { display: flex; align-items: center; gap: 9px; font-variant-numeric: tabular-nums; }
+.dialog-pager button { border: 1px solid #dce4ed; width: 29px; height: 29px; padding: 4px; }
+.dialog-pager button:disabled { opacity: .4; cursor: default; }
+.dialog-flip { transform: rotate(180deg); }
+.dialog-panel > p, .dialog-panel > [role=alert], .dialog-empty { margin: 24px 20px; }
+@media (max-width: 600px) {
+  .dialog-toolbar, .dialog-table-footer { padding: 12px; }
+  .dialog-segments button { font-size: 12px; padding: 6px; }
+  .dialog-table th:first-child, .dialog-table td:first-child { padding-left: 12px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dialog-table tbody tr { animation: dialog-row-in .24s ease-out both; animation-delay: calc(var(--order) * 22ms); }
+  @keyframes dialog-row-in { from { opacity: .25; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+}
