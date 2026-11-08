@@ -1,0 +1,54 @@
+# Explicit opt-in overlay. Default compose.yaml continues using the mock.
+# GEMINI_KEY_FILE is an absolute path to a private UTF-8 file, never the key itself.
+services:
+  ai-real:
+    build:
+      context: ..
+      dockerfile: backend/docker/ai-real.Dockerfile
+    init: true
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8001
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      NODE_OPTIONS: --max-old-space-size=128
+    secrets:
+      - gemini_api_key
+    healthcheck:
+      test: ["CMD", "node", "backend/docker/ai-real-healthcheck.mjs"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    mem_limit: 192m
+    cpus: 0.75
+    pids_limit: 64
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    restart: "no"
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  backend:
+    volumes:
+      - ../data:/app/input:ro
+      - ./.tmp/real-runs:/app/.tmp/real-runs
+    environment:
+      AI_MODE: http
+      AI_BASE_URL: http://ai-real:8001
+      AI_SERVICE_KIND: ai
+      AI_ALLOW_MOCK_IN_PRODUCTION: "false"
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+    depends_on:
+      ai-real:
+        condition: service_healthy
+
+secrets:
+  gemini_api_key:
+    file: ${GEMINI_KEY_FILE:?Set GEMINI_KEY_FILE to the existing private key file}
