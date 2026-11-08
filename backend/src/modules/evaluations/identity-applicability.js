@@ -10,8 +10,17 @@ const clauses = text => text.split(/[.!?]+/u).map(normalize).filter(Boolean);
 // Reviewed public UI instructions, matched as whole statements, never by a keyword
 // or conversation ID. Unknown wording remains unconfirmed, not guessed to be public.
 const navigationRequest = /^(?:подскажите )?(?:где|как) (?:можно )?(?:взять|найти|открыть|скачать|посмотреть) (?:отчет брокера|отчеты|свой тариф|название тарифа)$/;
+const fundingNavigationRequest = /^(?:(?:скажите|подскажите) )?где (?:в приложении )?скачать реквизиты пополнения$/;
 const clientStatements = [
   navigationRequest,
+  fundingNavigationRequest,
+  /^там много кнопок подключите оператора пожалуйста$/,
+  /^там много кнопок$/,
+  /^подключите оператора пожалуйста$/,
+  /^я писал выше нужны реквизиты какую кнопку нажать$/,
+  /^я писал выше$/,
+  /^нужны реквизиты какую кнопку нажать$/,
+  /^да пожалуйста$/,
   /^(?:и еще )?хочу посмотреть (?:какой у меня тариф|свой тариф)$/,
   /^я в приложении подключите человека не могу найти (?:сами )?отчеты$/,
   /^телефон под рукой приложение уже открыто$/,
@@ -27,6 +36,8 @@ const clientStatements = [
   /^(?:да|нет|спасибо|понял|поняла|вижу|хорошо|больше ничего|окей)$/,
 ];
 const navigationStatements = [
+  // Confirms only a self-service context; it does not prove a helpful consultation.
+  /^все есть в приложении$/,
   /^откройте (?:раздел )?меню > отчеты и документы > отчет брокера$/,
   /^выберите период и скачайте отчет$/,
   /^на первой странице в разделе информация о счете$/,
@@ -36,6 +47,8 @@ const navigationStatements = [
   /^(?:да )?для сверки выберите тот период который хотите проверить$/,
 ];
 const courtesies = [
+  /^добрый день я [а-я]{1,40}$/,
+  /^чем могу помочь$/,
   /^здравствуйте(?: меня зовут [а-я]{1,40})?$/,
   /^(?:пожалуйста|хорошего (?:дня|вечера)|до свидания)$/,
 ];
@@ -44,6 +57,7 @@ const botStatements = new Set([
   'Здравствуйте! Я AIM, AI-ассистент Freedom Broker. Я могу ответить на вопросы о продуктах и услугах, предоставить информацию по вашим счетам, активам и комиссиям, сравнить данные в таблице, отправить контакты вашего менеджера и передать вопрос специалистам поддержки.',
   'Продолжая разговор, Вы соглашаетесь на сбор и обработку персональных данных и подтверждаете, что ознакомились с Политикой конфиденциальности Компании.',
   'Тариф можно найти на первой странице отчёта брокера.',
+  'В приложении есть раздел «Пополнить».',
   'Желаете, чтобы я соединил Вас с оператором?',
   'Пожалуйста, ожидайте. Оператор скоро подключится к чату.',
 ].map(normalize));
@@ -72,7 +86,8 @@ export function confirmsIdentityNotRequired(criterion, conversation) {
       continue;
     }
     if (speaker === 'system') {
-      if (text !== 'эскалация на оператора') return false;
+      // A known end event is context for identity only, never proof of closure N/A.
+      if (!['эскалация на оператора', 'оператор закрыл чат'].includes(text)) return false;
       continue;
     }
     if (!['operator', 'client'].includes(speaker)) return false;
@@ -83,7 +98,7 @@ export function confirmsIdentityNotRequired(criterion, conversation) {
     for (const statement of statements) {
       if (speaker === 'client') {
         if (!clientStatements.some(pattern => pattern.test(statement))) return false;
-        request ||= navigationRequest.test(statement);
+        request ||= navigationRequest.test(statement) || fundingNavigationRequest.test(statement);
       } else {
         const isNavigation = navigationStatements.some(pattern => pattern.test(statement));
         if (!isNavigation && !courtesies.some(pattern => pattern.test(statement))) return false;

@@ -20,7 +20,10 @@ export function buildAiRequest(conversation, checklist) {
   };
 }
 
-function invalid(code, message) { throw new ApiError(502, code, message); }
+function invalid(code, message, criterionKey) {
+  const details = criterionKey === undefined ? undefined : [{ criterionKey }];
+  throw new ApiError(502, code, message, details);
+}
 
 export function validateAiResponse(payload, conversation, checklist, confirmations) {
   const parsed = aiResponseSchema.safeParse(payload);
@@ -32,41 +35,48 @@ export function validateAiResponse(payload, conversation, checklist, confirmatio
   const byKey = new Map(checklist.criteria.map((criterion) => [criterion.key, criterion]));
   const seen = new Set();
   const answers = [];
+  const unconfirmed = [];
   for (const result of response.results) {
     const criterion = byKey.get(result.criterion_id);
     if (!criterion || seen.has(result.criterion_id)) invalid('AI_CRITERIA_MISMATCH', 'AI response has unknown or duplicate criteria');
     seen.add(result.criterion_id);
     const range = result.checked_range;
     if (range && (range.start > range.end || range.end >= conversation.transcript.length)) {
-      invalid('AI_INVALID_RANGE', 'AI checked range is outside the transcript');
+      invalid('AI_INVALID_RANGE', 'AI checked range is outside the transcript', criterion.key);
     }
     for (const evidence of result.evidence) {
       const turn = conversation.transcript[evidence.turnIndex];
       if (!turn || !turn.text.includes(evidence.quote)
         || (range && (evidence.turnIndex < range.start || evidence.turnIndex > range.end))) {
-        invalid('AI_INVALID_EVIDENCE', 'AI evidence does not match the referenced transcript turn');
+        invalid('AI_INVALID_EVIDENCE', 'AI evidence does not match the referenced transcript turn', criterion.key);
       }
     }
-    if (!result.evidence.length && !range) invalid('AI_MISSING_SUPPORT', 'AI must provide evidence or an explicitly checked range');
+    if (!result.evidence.length && !range) invalid('AI_MISSING_SUPPORT', 'AI must provide evidence or an explicitly checked range', criterion.key);
     if (!result.na && criterion.type === 'boolean' && result.answer === false && !range) {
-      invalid('AI_MISSING_RANGE', 'A missing action requires an explicitly checked transcript range');
+      invalid('AI_MISSING_RANGE', 'A missing action requires an explicitly checked transcript range', criterion.key);
     }
     if (result.na) {
-      if (result.answer !== null || !result.na_reason?.trim()) invalid('AI_INVALID_NA', 'N/A requires a null answer and a reason');
+      if (result.answer !== null || !result.na_reason?.trim()) invalid('AI_INVALID_NA', 'N/A requires a null answer and a reason', criterion.key);
       if (!confirmApplicability(criterion, conversation, checklist, confirmations)) {
-        invalid('AI_NA_UNCONFIRMED', 'N/A condition is not independently confirmed for this version and conversation');
+        unconfirmed.push(criterion.key);
+        continue;
       }
       answers.push({ criterionKey: criterion.key, isNa: true, naConditionMet: true, naReason: result.na_reason });
     } else {
-      if (result.na_reason !== null) invalid('AI_INVALID_NA', 'Applicable answers cannot include an N/A reason');
+      if (result.na_reason !== null) invalid('AI_INVALID_NA', 'Applicable answers cannot include an N/A reason', criterion.key);
       if (criterion.type === 'scale') {
         if (typeof result.answer !== 'number' || !criterion.scaleSteps.some((step) => step.value === result.answer)) {
-          invalid('AI_INVALID_ANSWER', 'AI scale answer is not an allowed step');
+          invalid('AI_INVALID_ANSWER', 'AI scale answer is not an allowed step', criterion.key);
         }
-      } else if (typeof result.answer !== 'boolean') invalid('AI_INVALID_ANSWER', 'AI boolean and flag answers must be boolean');
+      } else if (typeof result.answer !== 'boolean') invalid('AI_INVALID_ANSWER', 'AI boolean and flag answers must be boolean', criterion.key);
       answers.push({ criterionKey: criterion.key, value: result.answer });
     }
   }
   if (seen.size !== byKey.size) invalid('AI_CRITERIA_MISMATCH', 'AI response must include every checklist criterion');
+  if (unconfirmed.length) {
+    throw new ApiError(502, 'AI_NA_UNCONFIRMED',
+      'N/A condition is not independently confirmed for this version and conversation',
+      unconfirmed.map(criterionKey => ({ criterionKey })));
+  }
   return { response, answers };
 }
