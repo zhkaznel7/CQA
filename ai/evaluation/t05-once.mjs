@@ -1,12 +1,14 @@
 import {createHash} from 'node:crypto';
 import {existsSync, readFileSync, writeFileSync, appendFileSync} from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {runBatch} from './run-once.mjs';
-import {evaluateGemini, PROMPT_VERSION, EVALUATOR_SHA256} from '../gemini.mjs';
+import {evaluateGemini, PROMPT_VERSION, EVALUATOR_SHA256, DEFAULT_MODEL} from '../gemini.mjs';
+import {recordingRequest} from './provider-artifacts.mjs';
+import {isMain} from './cli.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const MODEL = 'gemini-3.5-flash-lite';
+export const MODEL = DEFAULT_MODEL;
 const inputFile = path.join(here, 't05-request.json');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const read = file => JSON.parse(readFileSync(file, 'utf8'));
@@ -21,16 +23,7 @@ export async function runT05({outputDir, key, request = fetch, log = console.log
       input_sha256:hash(readFileSync(inputFile)),
       evaluator_sha256:EVALUATOR_SHA256},
     evaluate: data => evaluateGemini(data, {key, model:MODEL,
-      request: async (url, init) => {
-        const response = await request(url, init);
-        return {status:response.status, ok:response.ok, headers:response.headers,
-          text:async () => {
-            const payload = await response.text();
-            // Successful provider output is local only, for offline diagnosis.
-            if (response.ok) writeFileSync(path.join(outputDir,'.run','provider-response.json'),payload,{mode:0o600});
-            return payload;
-          }};
-      },
+      request: recordingRequest({outputDir, key, request}),
       onEvent: event => appendFileSync(path.join(outputDir,'.run','diagnostics.log'),
         JSON.stringify({timestamp:new Date().toISOString(),conversation_id:'T05',model:MODEL,...event})+String.fromCharCode(10))
     })
@@ -60,6 +53,6 @@ async function main() {
   const result = await runT05({outputDir,key:process.env.GEMINI_API_KEY});
   if (result.status !== 'pass') process.exitCode=1;
 }
-if (process.argv[1] && import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   main().catch(error=>{console.error(error.message);process.exitCode=1;});
 }

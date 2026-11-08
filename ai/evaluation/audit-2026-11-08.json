@@ -1,0 +1,488 @@
+{
+  "audit_date": "2026-11-08",
+  "timezone": "Asia/Almaty",
+  "scope": "Повторная проверка AI-модуля по официальному чек-листу, гайду, приложению формата сдачи и последним переданным пользователем ответам организаторов.",
+  "reviewed_ai_commit": "796b9da90e3c3e45c0f7843f406353e42b9eea3d",
+  "reviewed_ai_prompt_version": "2.3.1",
+  "reviewed_backend_commit": "23a9394f6ea096ad3e16909498a99f2f193291e9",
+  "verdict": "Официальная начальная конфигурация перенесена корректно. Текущую версию нельзя объявлять готовой к реальной интеграции и сдаче: остаются отказ провайдера, воспроизведённое расхождение валидации и непроверенный N/A/экспорт процесс.",
+  "audit_actions": {
+    "gemini_requests": 0,
+    "implementation_files_modified": false,
+    "other_team_modules_modified": false,
+    "database_tests_executed": false,
+    "database_state_modified": false,
+    "git_commit_or_push_performed": false,
+    "temporary_http_mock_stopped": true
+  },
+  "sources": [
+    {
+      "kind": "official_pdf",
+      "id": "checklist",
+      "path": "/Users/muratizturganov/Downloads/CQA_Chat_Quality_Checklist 1.pdf",
+      "pages_read": 3,
+      "sha256": "2f6908c3026b6221f169a0a4efe808f37cdc6d1f227ed95bfe1c6431ec597808"
+    },
+    {
+      "kind": "official_pdf",
+      "id": "results",
+      "path": "/Users/muratizturganov/Downloads/CQA_Student_Guide_Appendix_Results.pdf",
+      "pages_read": 3,
+      "sha256": "cf9e282fee6ee6fdc9ac0b857a513e21ff3010ef99db8e4d61df64f8c079f741"
+    },
+    {
+      "kind": "official_pdf",
+      "id": "guide",
+      "path": "/Users/muratizturganov/Downloads/CQA_Hackathon_Student_Guide_v3 1.pdf",
+      "pages_read": 4,
+      "sha256": "8b2f79a685c6707749c780ee042d06c2bf4bff8741732698b4c8bac033ff1b5e"
+    },
+    {
+      "kind": "primary_provider_documentation",
+      "url": "https://ai.google.dev/gemini-api/docs/structured-output",
+      "used_for": "Документированное подмножество JSON Schema: null через type, enum для строк и чисел. Это не ответ сервера на конкретный неудачный запрос."
+    },
+    {
+      "kind": "primary_provider_documentation",
+      "url": "https://ai.google.dev/api/generate-content",
+      "used_for": "Поля GenerateContent и схемы; не подтверждение точной причины сохранённого HTTP 400."
+    },
+    {
+      "kind": "team_backend_documentation",
+      "git_ref": "origin/backend",
+      "paths": [
+        "backend/docs/evaluations.md",
+        "backend/docs/results-export.md",
+        "backend/docs/exporters-compatibility.md"
+      ],
+      "used_for": "Контракт, подтверждения N/A и роль экспортёров. Числа Backend-тестов из документации не выдаются за повторно выполненные в этом аудите."
+    }
+  ],
+  "requirements_origin": {
+    "official_pdf": "Что оценивать, восемь исходных критериев, шкалы/веса, N/A по условиям, доказательства, настраиваемый чек-лист, интерфейс, апелляции, формат и сроки сдачи.",
+    "organizer_clarifications_from_user": "На контроле только чаты; переоценка новой версии; half-up округление; разумная обработка недостатка данных; DEV-звонки преимущественно для UI; допускается contact=null с причиной для подтверждённой обрезки.",
+    "team_design_not_official_requirement": "Node.js, HTTP /v1/evaluations, порт 8001, наименования полей AI API, Gemini, внутренние checks/levels/violations/condition_id и независимые подтверждения N/A в БД."
+  },
+  "dev_structure": {
+    "records": 65,
+    "channels": {
+      "agent chat": 60,
+      "voice call": 5
+    },
+    "languages": {
+      "RU": 35,
+      "KZ": 15,
+      "EN": 15
+    },
+    "roles": {
+      "client": 505,
+      "bot": 315,
+      "system": 109,
+      "operator": 339
+    },
+    "empty_turns": 0
+  },
+  "official_checklist": [
+    {
+      "criterion_id": "01",
+      "name": "Установление контакта",
+      "type": "boolean",
+      "weight": 10,
+      "allow_na_chat": false,
+      "scale": [],
+      "configuration_matches_pdf": true
+    },
+    {
+      "criterion_id": "02",
+      "name": "Выявление потребности",
+      "type": "boolean",
+      "weight": 15,
+      "allow_na_chat": true,
+      "scale": [],
+      "configuration_matches_pdf": true
+    },
+    {
+      "criterion_id": "03",
+      "name": "Идентификация",
+      "type": "boolean",
+      "weight": 20,
+      "allow_na_chat": true,
+      "scale": [],
+      "configuration_matches_pdf": true
+    },
+    {
+      "criterion_id": "04",
+      "name": "Корректная и полная консультация",
+      "type": "scale",
+      "weight": 20,
+      "allow_na_chat": true,
+      "scale": [
+        20,
+        15,
+        10,
+        5,
+        0
+      ],
+      "configuration_matches_pdf": true
+    },
+    {
+      "criterion_id": "05",
+      "name": "Эмпатия и клиентоориентированность",
+      "type": "boolean",
+      "weight": 15,
+      "allow_na_chat": false,
+      "scale": [],
+      "configuration_matches_pdf": true
+    },
+    {
+      "criterion_id": "06",
+      "name": "Управление диалогом, скорость и грамотность",
+      "type": "scale",
+      "weight": 15,
+      "allow_na_chat": false,
+      "scale": [
+        10,
+        7,
+        4,
+        0
+      ],
+      "configuration_matches_pdf": true
+    },
+    {
+      "criterion_id": "07",
+      "name": "Завершение",
+      "type": "boolean",
+      "weight": 5,
+      "allow_na_chat": true,
+      "scale": [],
+      "configuration_matches_pdf": true
+    },
+    {
+      "criterion_id": "08",
+      "name": "Грубые ошибки",
+      "type": "flag",
+      "weight": 0,
+      "allow_na_chat": false,
+      "scale": [],
+      "configuration_matches_pdf": true
+    }
+  ],
+  "confirmed_conformity": [
+    "Все 8 исходных критериев, веса и ступени совпадают с PDF; mock-request, manual rubric snapshot и seed актуального Backend совпадают по критериям и инструкциям.",
+    "AI получает текущий снимок чек-листа, возвращает criterion_id по key; внешние поля Backend не расширялись внутренними проверками.",
+    "AI не рассчитывает баллы и не пишет в PostgreSQL. Формулы, N/A-перераспределение и флаг относятся к Backend.",
+    "Код проверяет точные цитаты по исходным индексам и попадание в включительный checked_range; BUG-004 учтён.",
+    "Сборщик сохраняет маркер до отправки, ответ/ошибку и не повторяет начатую попытку автоматически.",
+    "Экспортёр использует официальные коды, нумерацию с единицы по полному транскрипту, null для N/A и status=error без подмены ошибки нулём.",
+    "Принятие одной обоснованной разрешённой ступени соответствует PDF; требование перечислять все отклонённые ступени было внутренним ограничением."
+  ],
+  "verification": {
+    "node_unit_tests": {
+      "passed": 56,
+      "failed": 0,
+      "command": "node --test ai/gemini.test.mjs ai/mock.test.mjs ai/evaluation/run-once.test.mjs ai/evaluation/recheck-three.test.mjs ai/evaluation/t05-once.test.mjs"
+    },
+    "python_tests": {
+      "passed": 23,
+      "failed": 0,
+      "command": "python3 -m unittest discover -s ai/evaluation -p 'test_*.py'"
+    },
+    "real_localhost_http_mock": {
+      "passed": 6,
+      "failed": 0,
+      "cases": [
+        {
+          "case": "language tag RU",
+          "status": 200,
+          "pass": true
+        },
+        {
+          "case": "language tag KZ",
+          "status": 200,
+          "pass": true
+        },
+        {
+          "case": "language tag EN",
+          "status": 200,
+          "pass": true
+        },
+        {
+          "case": "changed criterion and version",
+          "status": 200,
+          "pass": true
+        },
+        {
+          "case": "invalid JSON",
+          "status": 400,
+          "pass": true
+        },
+        {
+          "case": "invalid turn index",
+          "status": 422,
+          "pass": true
+        }
+      ],
+      "meaning": "Проверка транспорта и формы; не семантики языков и не реальной модели."
+    },
+    "negative_probes": "Три незакрытых пробела воспроизведены отдельно от зелёных штатных тестов; см. AI-AUDIT-02 и AI-AUDIT-03.",
+    "backend_applicability": "Исполнена чистая функция из проверенной ветки origin/backend; PostgreSQL и полный Backend не запускались."
+  },
+  "baseline_comparison_not_organizer_ground_truth": {
+    "draft": {
+      "match": 51,
+      "mismatch": 10,
+      "unavailable": 6
+    },
+    "disputed": {
+      "mismatch": 8,
+      "match": 18,
+      "unavailable": 3
+    },
+    "approved_answers": 0,
+    "warning": "Это первый старый прогон и неутверждённая разметка, не измерение точности версии 2.3.1. Одна техническая ошибка доказательства найдена сверх восьми недоступных оценок из ответа 503."
+  },
+  "findings": [
+    {
+      "id": "AI-AUDIT-01",
+      "priority": "P0",
+      "status": "confirmed_provider_failure_root_cause_not_proven",
+      "title": "Текущая версия 2.3.1 не подтверждена живым полным запросом",
+      "evidence": {
+        "response": "predictions-ru025-v2-3-1/p1-ru-025.json",
+        "diagnostics": "predictions-ru025-v2-3-1/.run/diagnostics.log",
+        "provider_http_status": 400,
+        "classification": "INVALID_ARGUMENT",
+        "elapsed_ms": 1084,
+        "provider_dispatches": 1
+      },
+      "analysis": "В сохранённой попытке нет оценок критериев. Подробности ошибки Google не сохранены: адаптер оставляет общую классификацию. По этому логу нельзя доказать конкретную причину.",
+      "isolated_schema_delta": {
+        "previous_prompt": "2.3.0",
+        "current_prompt": "2.3.1",
+        "previous_schema_bytes": 3259,
+        "current_schema_bytes": 3464,
+        "new_field": "results[].checks[].condition_id",
+        "new_type": [
+          "string",
+          "null"
+        ],
+        "new_enum": [
+          "known_details_considered",
+          "missing_details_clarified_before_answer",
+          null
+        ],
+        "other_schema_change": "condition_id добавлен в required"
+      },
+      "hypothesis": "Главный кандидат для проверки — новый nullable enum с null внутри списка. Документация Google описывает enum для строк/чисел и null через type. Точный триггер именно этого HTTP 400 не установлен; нельзя выдавать гипотезу за подтверждённый диагноз.",
+      "code": [
+        "ai/gemini.mjs:118",
+        "ai/gemini.mjs:299",
+        "ai/evaluation/recheck-three.mjs:74"
+      ],
+      "next_action": "Отдельно исправить совместимость схемы провайдера и безопасную диагностику поля ошибки, сохранив локальную проверку двух condition_id. Затем согласовать одну новую попытку с отдельным manifest, без автоматического повтора этой попытки."
+    },
+    {
+      "id": "AI-AUDIT-02",
+      "priority": "P1",
+      "status": "reproduced_offline_contract_mismatch",
+      "title": "AI допускает boolean=false без checked_range, Backend его отклоняет",
+      "reproduction": {
+        "source": "ai/mock-request.json",
+        "criterion_id": "01",
+        "checks": "Приветствие true в группе 1; представление false в группе 2",
+        "omission": false,
+        "checked_range": null,
+        "ai_validator_accepts": true,
+        "ai_answer": false,
+        "backend_expected_error": "AI_MISSING_RANGE"
+      },
+      "analysis": "AI требует диапазон по признаку omission, выбранному моделью. Актуальный Backend требует его для любого применимого boolean=false. Нельзя полагаться на то, что модель всегда правильно выставит дополнительный внутренний признак.",
+      "code": [
+        "ai/gemini.mjs:275",
+        "origin/backend:backend/src/modules/evaluations/ai-contract.js"
+      ],
+      "next_action": "Согласовать AI-валидатор с уже действующим условием Backend и добавить сквозной отрицательный пример. Не подставлять произвольную оценку или выдуманный диапазон."
+    },
+    {
+      "id": "AI-AUDIT-03",
+      "priority": "P1",
+      "status": "reproduced_incomplete_model_assessment_accepted",
+      "title": "Полнота проверок строго контролируется только для известной формулировки 02",
+      "reproductions": [
+        {
+          "source": "ai/mock-request.json",
+          "criterion_id": "01",
+          "synthetic_model_checks": "Только приветствие true; проверка представления отсутствует",
+          "ai_validator_accepts": true,
+          "ai_answer": true,
+          "issue": "Оператор в исходной фикстуре не представился, но неполный список условий принят."
+        },
+        {
+          "source": "data/dev.json:p1-kz-013",
+          "criterion_id": "08",
+          "synthetic_model_violations": "Только оскорбление detected=false; два других вида нарушения отсутствуют",
+          "ai_validator_accepts": true,
+          "ai_answer": false,
+          "issue": "В реплике 11 есть предложение частной платной консультации, но пропущенный моделью вид нарушения не обнаруживается валидатором."
+        }
+      ],
+      "scope": "Это негативные пробы с искусственно неполным ответом модели. Они показывают пробел защиты, но не измеряют частоту подобных ошибок живой Gemini.",
+      "code": [
+        "ai/gemini.mjs:149",
+        "ai/gemini.mjs:162",
+        "ai/gemini.mjs:179",
+        "ai/config/check-policies.v1.json"
+      ],
+      "next_action": "Определить общий способ контроля обязательных условий официального чек-листа без привязки к ID диалога; для 01 и 08 добавить отрицательные регрессии на неполный список. Изменённая пользовательская рубрика не должна наследовать устаревшие обязательства."
+    },
+    {
+      "id": "AI-AUDIT-04",
+      "priority": "P1",
+      "status": "backend_policy_confirmed_end_to_end_workflow_unverified",
+      "title": "N/A требует доверенного подтверждения отдельно от ответа AI",
+      "evidence": {
+        "backend_code": "backend/src/modules/evaluations/applicability.js",
+        "no_confirmation_result": false,
+        "trusted_confirmation_same_version_result": true,
+        "persistence": "ApplicabilityConfirmation",
+        "missing_confirmation_error": "AI_NA_UNCONFIRMED",
+        "writer": "backend/scripts/confirm-na.js"
+      },
+      "analysis": "Backend требует подтверждение для каждого N/A, привязанное к диалогу, версии и критерию. Публичный API оценки его не создаёт. Наличие подтверждений в БД команды в этом аудите не проверялось. Правило применимости из PDF не предписывает отдельную административную таблицу — это решение команды.",
+      "next_action": "С Жанель проверить реальный сценарий обычного N/A, повторной оценки новой версии и контрольного пакета: кто подтверждает условие, когда и как это укладывается в час. Не обходить проверку и не заменять N/A на Нет ради сохранения."
+    },
+    {
+      "id": "AI-AUDIT-05",
+      "priority": "P1",
+      "status": "verification_gap",
+      "title": "Нет подтверждённой регрессии финальной версии на RU/KZ/EN и сквозной сдачи",
+      "evidence": {
+        "manual_dialogues": 12,
+        "manual_answers": 96,
+        "pending_answers": 96,
+        "disputed_answers": 29,
+        "latest_2_3_1_successful_full_calls": 0,
+        "latest_2_3_0_successful_full_calls": 1,
+        "first_batch_has_results": 11,
+        "first_batch_provider_errors": 1
+      },
+      "analysis": "79 штатных тестов используют имитацию провайдера и проверяют локальную логику; они не подтверждают совместимость схемы с Google и точность модели. Последние улучшения не проверены на KZ/EN. Разметка не утверждена тестировщиком и не является эталоном организаторов.",
+      "next_action": "После исправления технических блокеров закрепить одну версию и проверить небольшую согласованную RU/KZ/EN выборку, затем обе версии изменённого критерия через реальный Backend. Полный DEV запуск выполнять после этой проверки."
+    },
+    {
+      "id": "AI-AUDIT-06",
+      "priority": "P2",
+      "status": "configuration_risk_confirmed",
+      "title": "HTTP-сервис и оценочные скрипты выбирают разные модели по умолчанию",
+      "evidence": {
+        "server_default": "gemini-3.8-flash",
+        "recheck_script": "gemini-3.5-flash-lite",
+        "known_3_8_problem": "Ранее сохранённые сообщения тестировщика описывают timeout 90 секунд",
+        "configuration_override": "GEMINI_MODEL"
+      },
+      "code": [
+        "ai/gemini-server.mjs:7",
+        "ai/evaluation/run-once.mjs",
+        "ai/evaluation/recheck-three.mjs"
+      ],
+      "next_action": "Фиксировать одну явно выбранную модель во всех воспроизводимых запусках и проверять имя при старте сервиса."
+    },
+    {
+      "id": "AI-AUDIT-07",
+      "priority": "P1",
+      "status": "submission_workflow_incomplete_not_format_defect",
+      "title": "Формат экспортёра соответствует PDF, реальные файлы сдачи ещё не подтверждены",
+      "evidence": {
+        "dev_source_records": 65,
+        "local_dev_submission_exists": false,
+        "local_prod_source_exists": false,
+        "local_prod_submission_exists": false,
+        "ai_exporter": "ai/evaluation/export-results.py",
+        "backend_exporter": "origin/backend:backend/scripts/export-results.js"
+      },
+      "analysis": "AI экспортёр переводит ключи, индексы с 0 на 1, сохраняет ошибки и берёт score из Backend. Он доверяет переданному файлу scores и может заменить output. Backend содержит отдельный экспортёр с проверкой сохранённых оценок и мостом --ai-input-dir. Его документация рекомендует Backend единственным производителем официального JSON; в этом аудите это рекомендация для согласования, а не уже принятое командой решение.",
+      "next_action": "Закрепить одного производителя результатов. Практичный вариант — основной экспорт из Backend, AI экспортёр как офлайн-сверка. Подтвердить реальные 65 DEV результатов, исходные ID, модель, версию и последующий Git push. PROD готовить только после получения настоящих 10 чатов."
+    },
+    {
+      "id": "AI-AUDIT-08",
+      "priority": "P2",
+      "status": "partial_dynamic_validation_by_literal_rule_match",
+      "title": "Усиленные проверки 02 зависят от нормализованного текста описания",
+      "analysis": "Сервис структурно поддерживает произвольные ключи, набор критериев и шкалы boolean/scale/flag без правки кода. Однако декларативные guards 02 включаются только для известных descriptionAliases/conditionAliases. Эквивалентная новая формулировка может перейти на общую LLM-проверку. Это не означает запрет изменения чек-листа, но уровень локального контроля изменится.",
+      "code": [
+        "ai/gemini.mjs:14",
+        "ai/config/na-policies.v1.json",
+        "ai/config/check-policies.v1.json"
+      ],
+      "next_action": "Проверить реальную смену формулировки и версии через интерфейс. Текст текущего чек-листа остаётся источником требований; не добавлять новые исключения для каждого DEV-ID."
+    }
+  ],
+  "next_steps_in_order": [
+    "Зафиксировать официальный чек-лист и согласованный HTTP контракт; разделить исправление транспорта и оценку смыслового качества.",
+    "Закрыть AI-AUDIT-01 минимальным изменением формата провайдера и безопасной диагностикой, сохранив независимые условия 02. Не запускать платную серию для угадывания причины.",
+    "Закрыть несовместимость boolean=false/checked_range и отрицательные примеры неполных проверок 01/08; сохранить отдельные регрессии.",
+    "Согласовать с Backend рабочий путь подтверждения обычных N/A и переоценки новой версии. Учесть кэш уже сохранённой mock-оценки той же пары диалог/версия.",
+    "Выполнить один согласованный живой сквозной сценарий: реальный Gemini, проверка Backend, score, сохранение, GET результата и экспорт. Затем тот же диалог с изменённым критерием; старый результат сохраняется.",
+    "Проверить финальную версию на согласованной RU/KZ/EN выборке и передать спорные метки тестировщику; оценивать адекватность аргументов, а не подгонять ответ к pending-разметке.",
+    "Подготовить полные 65 DEV-результатов и экспорт. Для контроля проверить процедуру на 10 исходных ID и новой версии в пределах часа, без создания фиктивного PROD-набора."
+  ],
+  "ready_when": [
+    "Живой полный запрос по восьми критериям принят выбранной моделью; техническая ошибка не скрывается под оценкой.",
+    "AI и Backend одинаково принимают/отклоняют доказательства, диапазоны и типы; N/A проходит согласованный независимый контроль.",
+    "Новая версия чек-листа оценивается через интерфейс без редактирования AI кода; исходная оценка доступна.",
+    "RU/KZ/EN проверены на фактической финальной модели и версии, результаты и спорные случаи сохранены.",
+    "Официальный JSON имеет реальные исходные ID, 65 DEV/10 полученных PROD записей, подтверждённые Backend score, правильную модель и push в согласованную ветку."
+  ],
+  "shared_product_requirements": [
+    {
+      "requirement": "Редактор чек-листа через интерфейс",
+      "owner": "Frontend + Backend; AI принимает снимок",
+      "audit_status": "Структурный приём новых ключей/версий проверен локально; живой сценарий новой рубрики не подтверждён."
+    },
+    {
+      "requirement": "Оценка диалога RU/KZ/EN",
+      "owner": "AI",
+      "audit_status": "Старый прогон содержит ответы на трёх языках; финальная 2.3.1 отклонена провайдером."
+    },
+    {
+      "requirement": "Ответы, баллы, доказательства, итоги секций",
+      "owner": "AI — ответы/доказательства; Backend — scoring; Frontend — показ",
+      "audit_status": "Границы ответственности корректны; найдено расхождение checked_range."
+    },
+    {
+      "requirement": "Карточка, переход к реплике и прослушивание звонка",
+      "owner": "Frontend + Backend",
+      "audit_status": "Не прогонялось в браузере в этом AI-аудите. Транскрипты и audio_url уже доступны, новое распознавание речи для выданных транскриптов не требуется."
+    },
+    {
+      "requirement": "Апелляция и сохранение решения проверяющего",
+      "owner": "Frontend + Backend",
+      "audit_status": "В полном UI/БД в этом аудите не проверялось; это не следует считать реализованным только по AI-тестам."
+    },
+    {
+      "requirement": "Название модели и примерная стоимость платной оценки",
+      "owner": "AI + команда",
+      "audit_status": "Названия моделей фиксируются в manifest; стоимость платной оценки и фактический режим оплаты в этом аудите не установлены."
+    },
+    {
+      "requirement": "Файлы DEV/PROD и своевременный push",
+      "owner": "Backend + AI + ответственный за сдачу",
+      "audit_status": "Формат поддержан; реальные файлы в текущей рабочей копии отсутствуют. Отсутствие ещё невыданного PROD само по себе не дефект реализации."
+    }
+  ],
+  "follow_up": {
+    "version": "2.4.0",
+    "resolved_in_ai": [
+      "AI-AUDIT-02: диапазоны согласованы в сервисе, сравнении и экспорте",
+      "AI-AUDIT-03: полные отдельные условия известных составных критериев и всех трёх нарушений",
+      "AI-AUDIT-06: одна стандартная модель всех точек запуска"
+    ],
+    "diagnostics": "Ошибки провайдера сохраняются приватно с редактированием ключа; CLI возвращает ошибку и для кэшированного отказа. Подтверждён запуск через символьную ссылку.",
+    "not_claimed_resolved": [
+      "HTTP 400 на реальном Google API",
+      "Сквозное сохранение реального Gemini и независимые N/A в Backend",
+      "Реальная финальная регрессия RU/KZ/EN, полные DEV/PROD результаты"
+    ],
+    "scope": "Основной текст — исторический снимок 796b9da. Новые результаты не переименовывают старые попытки."
+  }
+}

@@ -1,10 +1,10 @@
 import {startServer} from './http.mjs';
 import {randomUUID} from 'node:crypto';
-import {evaluateGemini, checkGemini, PROMPT_VERSION} from './gemini.mjs';
+import {evaluateGemini, checkGemini, PROMPT_VERSION, DEFAULT_MODEL} from './gemini.mjs';
 
 const key = process.env.GEMINI_API_KEY?.trim();
 if (!key) throw Error('Задайте GEMINI_API_KEY в терминале запуска.');
-const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
 const options = {key, model, fast: process.env.GEMINI_FAST === '1'};
 function tracedOptions(input) {
   const requestId = randomUUID();

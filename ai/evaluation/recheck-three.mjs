@@ -1,10 +1,12 @@
-import {appendFileSync, existsSync, writeFileSync} from 'node:fs';
+import {appendFileSync, existsSync, readFileSync} from 'node:fs';
 import path from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-import {parseArgs} from 'node:util';
+import {isDeepStrictEqual, parseArgs} from 'node:util';
 import {planInput, runBatch} from './run-once.mjs';
-import {evaluateGemini, PROMPT_VERSION} from '../gemini.mjs';
+import {evaluateGemini, PROMPT_VERSION, DEFAULT_MODEL} from '../gemini.mjs';
+import {recordingRequest} from './provider-artifacts.mjs';
+import {isMain} from './cli.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const IDS = ['p1-ru-025', 'p1-en-015', 'p1-en-014'];
@@ -17,6 +19,7 @@ export function selectThree(inputs, single = false) {
 export function runSelection(args) {
   const {values} = parseArgs({args, options: {
     'dry-run': {type: 'boolean'},
+    'archive-only': {type: 'boolean'},
     'single-ru025': {type: 'boolean'},
     'ru025-na-v2-1': {type: 'boolean'},
     'run-name': {type: 'string'}
@@ -44,13 +47,43 @@ async function main() {
   const inputs = selectThree(allInputs, single);
   const outputDir = path.join(here, selection.directory);
   const baselineDir = path.join(here, 'predictions');
-  const model = 'gemini-3.5-flash-lite';
+  const model = DEFAULT_MODEL;
   const identity = {schema_version: 1, ...provenance, model, fast: false,
     prompt_version: PROMPT_VERSION, conversation_ids: ids};
   for (const cid of ids) {
     if (!existsSync(path.join(baselineDir, cid + '.json'))) throw Error('Нет первого результата для ' + cid);
   }
+  const manifestPath = path.join(outputDir, '.run', 'manifest.json');
+  const hasManifest = existsSync(manifestPath);
+  const manifest = hasManifest ? JSON.parse(readFileSync(manifestPath, 'utf8')) : null;
+  const archiveOnly = args.includes('--archive-only');
+  if (archiveOnly && !hasManifest) throw Error('Архивный manifest отсутствует. Запросов к Gemini: 0.');
+  const archived = archiveOnly || (hasManifest && !isDeepStrictEqual(manifest, identity));
+  let archiveHasErrors = false;
+  if (archived) {
+    // Compare archived assessments with today's annotations only when the
+    // conversations and rubric still identify the same benchmark.
+    if (!manifest?.prompt_version || !manifest.model || manifest.sourceHash !== identity.sourceHash ||
+        manifest.rubricHash !== identity.rubricHash || !isDeepStrictEqual(manifest.conversation_ids, ids)) {
+      throw Error('Архивный manifest несовместим с выбранными диалогами или чек-листом. Запуск остановлен.');
+    }
+    for (const input of inputs) {
+      const file = path.join(outputDir, input.conversation_id + '.json');
+      if (!existsSync(file)) throw Error('Архив неполный: отсутствует сохранённый ответ для ' + input.conversation_id + '.');
+      const row = JSON.parse(readFileSync(file, 'utf8'));
+      const expectedKeys = input.checklist.criteria.map(c => c.key).sort();
+      if (row?.conversation_id !== input.conversation_id || !(row.error?.code ||
+          (row.checklist_id === input.checklist.id && row.checklist_version === input.checklist.version &&
+           Array.isArray(row.results) && isDeepStrictEqual(row.results.map(r => r?.criterion_id).sort(), expectedKeys)))) {
+        throw Error('Архив содержит неполный результат для ' + input.conversation_id + '.');
+      }
+      if (row.error) archiveHasErrors = true;
+    }
+    console.log('Архив: промпт ' + manifest.prompt_version + ', модель ' + manifest.model +
+      '. Текущий промпт ' + PROMPT_VERSION + '. Только чтение и сравнение, запросов к Gemini: 0.');
+  }
   if (args.includes('--dry-run')) {
+    if (archived) return;
     console.log('Без отправки запросов. Модель: ' + model + ', промпт: ' + PROMPT_VERSION);
     console.log('Отдельная папка: ' + outputDir);
     for (const cid of ids) {
@@ -62,30 +95,32 @@ async function main() {
   }
   const python = process.env.PYTHON || 'python3';
   if (spawnSync(python, ['--version']).status !== 0) throw Error('Для сравнения нужен Python 3.');
+  const compareArgs = [path.join(here, 'compare.py'), '--predictions', outputDir,
+    '--ids', ids.join(','), '--baseline', baselineDir];
+  if (archived) {
+    const result = spawnSync(python, compareArgs, {stdio: 'inherit'});
+    if (result.status !== 0) throw Error('Не удалось сравнить архивный ответ.');
+    if (archiveHasErrors) process.exitCode = 1;
+    return;
+  }
   const key = process.env.GEMINI_API_KEY?.trim();
   const pending = ids.some(cid => !existsSync(path.join(outputDir, cid + '.json')) &&
     !existsSync(path.join(outputDir, '.run', cid + '.json')));
   if (pending && !key) throw Error('Задайте GEMINI_API_KEY в этом терминале. Запросов ещё не было.');
   const summary = await runBatch({inputs, outputDir, identity, stopOnRequestRejected: true, evaluate: input =>
-    evaluateGemini(input, {key, model, request: async (url, init) => {
-      const response = await fetch(url, init);
-      return {status: response.status, ok: response.ok, headers: response.headers,
-        text: async () => {
-          const payload = await response.text();
-          if (response.ok) writeFileSync(path.join(outputDir, '.run', 'provider-response.json'), payload, {mode: 0o600});
-          return payload;
-        }};
-    }, onEvent: event => {
+    evaluateGemini(input, {key, model,
+      request: recordingRequest({outputDir, key, conversationId: inputs.length === 1 ? '' : input.conversation_id}),
+      onEvent: event => {
       appendFileSync(path.join(outputDir, '.run', 'diagnostics.log'),
         JSON.stringify({timestamp: new Date().toISOString(), conversation_id: input.conversation_id, model, ...event}) + String.fromCharCode(10));
     }})});
   console.log('Сбор ' + inputs.length + ' чатов завершён:', summary);
-  const result = spawnSync(python, [path.join(here, 'compare.py'),
-    '--predictions', outputDir, '--ids', ids.join(','), '--baseline', baselineDir,
-    '--report', path.join(here, selection.report)], {stdio: 'inherit'});
+  const result = spawnSync(python, [...compareArgs, '--report', path.join(here, selection.report)], {stdio: 'inherit'});
   if (result.status !== 0) throw Error('Не удалось завершить сравнение; ответы сохранены, отправлять их повторно не нужно.');
+  // A generated comparison report does not make a failed provider request successful.
+  if (summary.savedErrors || summary.interrupted) process.exitCode = 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+if (isMain(import.meta.url)) {
   main().catch(error => {console.error(error.message); process.exitCode = 1;});
 }

@@ -20,6 +20,90 @@
           "condition": "Оператор уточнил недостающее до ответа"
         }
       ]
+    },
+    {
+      "key": "contact",
+      "criterionType": "boolean",
+      "descriptionAliases": [
+        "Да — оператор поздоровался на языке клиента и представился в первом ответе."
+      ],
+      "evidenceWindow": "first_operator",
+      "checks": [
+        {
+          "id": "greeting_in_client_language",
+          "group": 1,
+          "condition": "Оператор поздоровался на языке клиента в первом ответе"
+        },
+        {
+          "id": "operator_introduced",
+          "group": 2,
+          "condition": "Оператор представился в первом ответе"
+        }
+      ]
+    },
+    {
+      "key": "empathy",
+      "criterionType": "boolean",
+      "descriptionAliases": [
+        "Да — оператор вежлив и, если клиент выразил недовольство или описал неудобство, отреагировал на конкретную проблему."
+      ],
+      "checks": [
+        {
+          "id": "polite",
+          "group": 1,
+          "condition": "Оператор вежлив"
+        },
+        {
+          "id": "reaction_to_inconvenience",
+          "group": 2,
+          "condition": "Если клиент выразил недовольство или неудобство, оператор отреагировал на конкретную проблему"
+        }
+      ]
+    },
+    {
+      "key": "closure",
+      "criterionType": "boolean",
+      "descriptionAliases": [
+        "Да — оператор подвёл итог или предложил дальнейшую помощь и попрощался. N/A — чат оборвался до возможности его завершить."
+      ],
+      "checks": [
+        {
+          "id": "summary",
+          "group": 1,
+          "condition": "Оператор подвёл итог"
+        },
+        {
+          "id": "further_help",
+          "group": 1,
+          "condition": "Оператор предложил дальнейшую помощь"
+        },
+        {
+          "id": "goodbye",
+          "group": 2,
+          "condition": "Оператор попрощался"
+        }
+      ]
+    },
+    {
+      "key": "critical",
+      "criterionType": "flag",
+      "descriptionAliases": [
+        "Да — выявлено оскорбление клиента, предложение платной услуги в обход компании или раскрытие конфиденциальной информации. Нет — ни одно из трёх не выявлено."
+      ],
+      "violations": [
+        {
+          "id": "insult",
+          "label": "Оскорбление клиента"
+        },
+        {
+          "id": "paid_service_outside_company",
+          "label": "Предложение платной услуги в обход компании"
+        },
+        {
+          "id": "confidentiality_disclosure",
+          "label": "Раскрытие конфиденциальной информации"
+        }
+      ]
     }
   ]
 }

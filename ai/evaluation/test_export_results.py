@@ -62,6 +62,29 @@ class ExportTests(unittest.TestCase):
         self.response["results"][0]["checked_range"] = {"start": 0, "end": 3}
         self.assertEqual(self.convert()["criteria"][0]["evidence_turns"], [1, 2, 3, 4])
 
+    def test_false_boolean_requires_range_but_flag_false_and_numeric_zero_do_not(self):
+        for position in [0, 1, 2, 4, 6]:
+            with self.subTest(criterion=position + 1):
+                original = copy.deepcopy(self.response)
+                original_score = copy.deepcopy(self.scored)
+                self.response["results"][position].update(answer=False, na=False, na_reason=None)
+                self.scored["score"]["criteria"][position].update(value=False, isNa=False)
+                result = self.convert()
+                self.assertEqual(result["status"], "error")
+                self.assertIn("checked_range", result["error"])
+                self.response["results"][position]["checked_range"] = {"start": 2, "end": 2}
+                result = self.convert()
+                self.assertEqual(result["status"], "ok")
+                self.assertIs(result["criteria"][position]["value"], False)
+                self.response = original
+                self.scored = original_score
+        self.response["results"][7]["answer"] = False
+        self.scored["score"]["criteria"][7]["value"] = False
+        self.scored["score"]["grossError"] = False
+        self.response["results"][3]["answer"] = 0
+        self.scored["score"]["criteria"][3]["value"] = 0
+        self.assertEqual(self.convert()["status"], "ok")
+
     def test_chat_contact_na_is_rejected_not_replaced_by_false(self):
         self.response["results"][0].update(answer=None, na=True, na_reason="Обрезанный звонок")
         row = self.convert()
@@ -138,6 +161,19 @@ class ExportTests(unittest.TestCase):
         mapping["custom-contact"] = "contact"
         self.assertEqual(exporter.convert(self.records[0], self.response, self.scored, mapping)["status"], "ok")
 
+    def test_failed_or_incomplete_official_source_is_rejected(self):
+        for patch in [{"isSuccess": False}, {"isSuccess": None}]:
+            source = {**self.source, **patch}
+            with self.assertRaisesRegex(ValueError, "Источник API"):
+                exporter.validate_source(source, "prod")
+        source = copy.deepcopy(self.source)
+        source["data"]["total_records"] = 9
+        with self.assertRaisesRegex(ValueError, "total_records"):
+            exporter.validate_source(source, "prod")
+        source["data"]["total_records"] = 10
+        source["isSuccess"] = True
+        self.assertEqual(len(exporter.validate_source(source, "prod")), 10)
+
     def test_cli_writes_complete_utf8_submission_without_network(self):
         import json
         import subprocess
@@ -160,6 +196,13 @@ class ExportTests(unittest.TestCase):
             self.assertEqual(len(saved["results"]), 10)
             self.assertEqual(saved["results"][0]["criteria"][0]["evidence_turns"], [3])
             self.assertEqual(saved["results"][0]["score"]["final_score"], 73.5)
+            original = target.read_bytes()
+            again = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(again.returncode, 0)
+            self.assertIn("--overwrite", again.stderr)
+            self.assertEqual(target.read_bytes(), original)
+            explicit = subprocess.run(command + ["--overwrite"], capture_output=True, text=True)
+            self.assertEqual(explicit.returncode, 0, explicit.stderr)
 
 
 if __name__ == "__main__":

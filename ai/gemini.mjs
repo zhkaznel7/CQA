@@ -2,7 +2,8 @@ import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {fail} from './http.mjs';
 
-export const PROMPT_VERSION = '2.3.1';
+export const PROMPT_VERSION = '2.4.3';
+export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 const policySource = readFileSync(new URL('./config/na-policies.v1.json', import.meta.url));
 const naPolicies = JSON.parse(policySource).policies;
 const checkPolicySource = readFileSync(new URL('./config/check-policies.v1.json', import.meta.url));
@@ -42,6 +43,7 @@ condition_met=false означает «основания N/A нет», код �
 Это поле НЕ означает, что критерий применим, выполнен оператором или заслуживает положительной оценки.
 Если allowNa=false, condition_met ОБЯЗАТЕЛЬНО false: N/A запрещён независимо от качества работы оператора.
 Если allowNa=true, проверь точное naCondition. Само разрешение N/A не означает выполнения условия.
+Если в na_policies есть запись для текущего criterion_id, примени её instructions при проверке этого условия.
 Если для критерия передана na_policies с key=initial_information_sufficient, сначала независимо заполни na_assessment.initial_information_sufficient (boolean).
 Для этого правила код определяет N/A по initial_information_sufficient; condition_met должен совпадать с ним. Для остальных критериев, если поле предусмотрено схемой, initial_information_sufficient=null.
 Указанное правило связано с точным условием naCondition, а не с номером критерия. При изменении условия следуй текущей рубрике.
@@ -59,10 +61,11 @@ condition_met=false означает «основания N/A нет», код �
 {group: положительное целое, condition: одно условие, met: boolean, reason: фактическое обоснование, turnIndexes: индексы доказательств}.
 Все группы обязательны (И), альтернативы внутри группы объединяются через ИЛИ. Итоговый answer вычислит код.
 Для A и B дай две группы, включая отсутствующее действие; для A или B — одну группу с двумя альтернативами.
-Если критерий указан в check_policies, верни ровно по одной проверке checks на каждый заданный id: condition_id=id, group и condition из конфигурации.
+Если критерий указан в check_policies, верни ровно по одной проверке checks на каждый заданный id: в поле condition запиши точный id, в group — группу из конфигурации. Текст условия для объяснения подставит код.
 Не объединяй обязательные условия в одну проверку. Для каждого отдельно укажи met, reason и turnIndexes, даже если обе проверки ссылаются на одну реплику.
-«Учёл известные детали» и «Уточнил недостающее до ответа» — две независимые обязательные проверки в разных группах И. Невыполнение любой из них означает Нет.
-Для остальных критериев, если condition_id предусмотрен схемой, укажи null и разбей текущую рубрику на условия самостоятельно. При N/A checks=[].
+Группы и альтернативы определяет текущая конфигурация. В need_discovery два условия обязательны; в closure нужны (итог ИЛИ дальнейшая помощь) И прощание.
+Условие реакции на неудобство не нарушено, если триггера не было: укажи met=true и причину отсутствия триггера, не придумывая жалобу.
+Для остальных критериев разбей текущую рубрику на условия самостоятельно и запиши в condition текст каждого условия. При N/A checks=[].
 Сохраняй условия «если»: если триггер не возник, объясни, почему требование не нарушено.
 Не добавляй «третьим лицам», факт оплаты или согласие клиента, если этого нет в рубрике.
 Реальная помощь может быть реакцией на неудобство без шаблонного извинения. Отказ учитывать опасение клиента, например предложение пропустить проверку, не является положительной реакцией на это опасение.
@@ -74,6 +77,7 @@ detected=true означает «нарушение обнаружено», dete
 Не используй отрицательные формулировки вроде «нарушений нет» в violation. Отсутствие нарушения не должно превращаться в detected=true.
 Проверь все виды нарушений, включая невыявленные. Код вернёт answer=true, если хотя бы один detected=true.
 Для остальных типов и N/A violations=[].
+Если критерий указан в violation_policies, используй в поле violation стабильный id каждого вида нарушения из конфигурации, по одному разу. Для каждого отдельно верни detected, reason и turnIndexes; человекочитаемые названия добавит код.
 
 Для применимой scale сопоставь весь эпизод со шкалой и включи в levels выбранную обоснованную ступень. Проверки других ступеней необязательны:
 {value: число из scaleSteps, met: соответствует ли ВЕСЬ эпизод описанию ступени, reason: обоснование}.
@@ -84,7 +88,10 @@ detected=true означает «нарушение обнаружено», dete
 
 explanation — короткое объяснение на русском, согласованное с проверками.
 evidence — дословные непустые подстроки исходных реплик без перевода. Все индексы из checks и violations должны быть представлены в evidence.
+Перед сдачей каждого критерия собери все различные индексы из его checks[].turnIndexes. Для каждого индекса i добавь в evidence этого же критерия запись {turnIndex: i, quote: дословный фрагмент transcript[i].text}, подтверждающую ссылку.
+Для need_discovery, когда известные детали взяты из реплики клиента, а уточнение — из ответа оператора, процитируй обе реплики с их собственными индексами. Если обе проверки используют один и тот же фрагмент, достаточно одной записи. Сверь каждый индекс и цитату с транскриптом.
 checked_range — включительный проверенный участок, содержащий все доказательства этого критерия. Для пропуска omission=true и диапазон обязателен.
+Для любого применимого boolean с итогом Нет checked_range обязателен независимо от omission. Наличие точной цитаты не заменяет диапазон.
 При отрицательном flag укажи диапазон всего диалога: отсутствие нарушения нельзя доказать одной последней репликой.
 Для пропуска доказательство показывает место, где действие ожидалось; для N/A оно подтверждает условие.
 Не выдумывай тарифы, сроки и продуктовые факты. База знаний не предоставлена: если оценка зависит от внешнего факта, перечисли ограничение в limitations и не называй факт проверенным.
@@ -104,7 +111,6 @@ function resultSchema(criteria, length) {
   // by validateResults; duplicating this object for every key bloats the
   // provider schema and can exceed structured-output complexity limits.
   const scaleValues = [...new Set(criteria.flatMap(c => c.type === 'scale' ? c.scaleSteps.map(s => s.value) : []))];
-  const conditionIds = [...new Set(criteria.flatMap(c => checkPolicy(c)?.checks.map(check => check.id) ?? []))];
   const row = object({
     criterion_id: {type: 'string', enum: criteria.map(c => c.key)},
     na_assessment: object({
@@ -115,8 +121,6 @@ function resultSchema(criteria, length) {
       reason: {type: 'string'}
     }),
     checks: {type: 'array', items: object({
-      ...(conditionIds.length ? {condition_id: {type: ['string', 'null'], enum: [...conditionIds, null],
-        description: 'ID из check_policies; null для прочих критериев.'}} : {}),
       group: {type: 'integer', minimum: 1}, condition: {type: 'string'},
       met: {type: 'boolean'}, reason: {type: 'string'}, turnIndexes: indexes
     })},
@@ -159,12 +163,25 @@ function booleanAnswer(checks, reject, evidenceIndexes) {
   return [...groups.values()].every(Boolean);
 }
 
-function requiredChecks(checks, criterion, reject) {
+// Resolve exact names within this criterion before checking completeness:
+// an ID and its label identify the same obligation and cannot count twice.
+function matchPolicyRows(rows, field, specs, labelField) {
+  if (rows.length !== specs.length) return null;
+  const byId = new Map();
+  for (const row of rows) {
+    const value = row?.[field];
+    const matches = specs.filter(spec => spec.id === value || spec[labelField] === value);
+    if (matches.length !== 1 || byId.has(matches[0].id)) return null;
+    byId.set(matches[0].id, row);
+  }
+  return byId;
+}
+
+function requiredChecks(checks, criterion, transcript, reject) {
   const policy = checkPolicy(criterion);
   if (!policy || !Array.isArray(checks) || !checks.length) return checks;
-  const byId = new Map(checks.map(check => [check?.condition_id, check]));
-  if (checks.length !== policy.checks.length || byId.size !== checks.length ||
-      policy.checks.some(spec => !byId.has(spec.id))) {
+  const byId = matchPolicyRows(checks, 'condition', policy.checks, 'condition');
+  if (!byId) {
     reject('нужны отдельные checks для обязательных условий: ' + policy.checks.map(spec => spec.id).join(', '));
   }
   // Stable IDs prevent merging or duplicating mandatory checks. Configured
@@ -172,8 +189,22 @@ function requiredChecks(checks, criterion, reject) {
   return policy.checks.map(spec => {
     const check = byId.get(spec.id);
     if (check.group !== spec.group) reject('обязательные условия должны использовать заданные отдельные группы И');
+    if (check.met && policy.evidenceWindow === 'first_operator') {
+      const first = transcript.findIndex(turn => turn.speaker === 'operator');
+      if (first < 0 || !Array.isArray(check.turnIndexes) || !check.turnIndexes.includes(first)) reject('действие должно подтверждаться первым ответом оператора');
+    }
     return {...check, condition: spec.condition};
   });
+}
+
+function requiredViolations(violations, criterion, reject) {
+  const specs = checkPolicy(criterion)?.violations;
+  if (!specs || !Array.isArray(violations) || !violations.length) return violations;
+  const byId = matchPolicyRows(violations, 'violation', specs, 'label');
+  if (!byId) {
+    reject('нужна отдельная проверка каждого вида нарушения: ' + specs.map(spec => spec.id).join(', '));
+  }
+  return specs.map(spec => ({...byId.get(spec.id), violation: spec.label}));
 }
 
 function flagAnswer(violations, reject, evidenceIndexes) {
@@ -258,6 +289,7 @@ export function validateResults(rows, {checklist, transcript}) {
     }
     let answer = null;
     let checks = r.checks;
+    let violations = r.violations;
     if ((na || c.type !== 'flag') && r.violations.length) reject('violations используется только для применимого flag');
     if (na) {
       if (!Array.isArray(r.checks) || r.checks.length || !Array.isArray(r.levels) || r.levels.length) reject('N/A несовместим с обычной оценкой');
@@ -266,21 +298,24 @@ export function validateResults(rows, {checklist, transcript}) {
       answer = scaleAnswer(r.levels, c, reject);
     } else if (c.type === 'flag') {
       if (!Array.isArray(r.checks) || r.checks.length || !Array.isArray(r.levels) || r.levels.length) reject('flag использует violations вместо checks/levels');
-      answer = flagAnswer(r.violations, reject, evidenceIndexes);
+      violations = requiredViolations(violations, c, reject);
+      answer = flagAnswer(violations, reject, evidenceIndexes);
     } else {
       if (!Array.isArray(r.levels) || r.levels.length) reject('boolean не использует уровни');
-      checks = requiredChecks(checks, c, reject);
+      checks = requiredChecks(checks, c, transcript, reject);
       answer = booleanAnswer(checks, reject, evidenceIndexes);
     }
     const span = r.checked_range;
-    if ((r.omission && !span) || (span !== null &&
+    // Match Backend validation even if the model misses its internal omission tag.
+    const rangeRequired = r.omission || (!na && c.type === 'boolean' && answer === false);
+    if ((rangeRequired && !span) || (span !== null &&
         (!index(span?.start) || !index(span?.end) || span.start > span.end))) reject('неверный или пропущенный checked_range');
     if (span && evidence.some(e => e.turnIndex < span.start || e.turnIndex > span.end)) reject('доказательство вне проверенного диапазона');
     if (!na && c.type === 'flag' && !answer && (!span || span.start !== 0 || span.end !== transcript.length - 1)) reject('отрицательный флаг требует проверки всего диалога');
     let explanation;
     if (na) explanation = r.na_assessment.reason;
     else if (c.type === 'scale') explanation = r.levels.find(level => level.value === answer).reason;
-    else if (c.type === 'flag') explanation = r.violations.map(violation =>
+    else if (c.type === 'flag') explanation = violations.map(violation =>
       violation.violation + ' — ' + (violation.detected ? 'выявлено' : 'не выявлено') + '. ' + violation.reason).join(' ');
     else explanation = checks.map(check =>
       check.condition + ' — ' + (check.met ? 'подтверждено' : 'не подтверждено') + '. ' + check.reason).join(' ');
@@ -384,7 +419,11 @@ async function assess(input, options) {
       }),
       check_policies: input.checklist.criteria.flatMap(c => {
         const policy = checkPolicy(c);
-        return policy ? [{criterion_id: c.key, key: policy.key, checks: policy.checks}] : [];
+        return policy?.checks ? [{criterion_id: c.key, key: policy.key, checks: policy.checks}] : [];
+      }),
+      violation_policies: input.checklist.criteria.flatMap(c => {
+        const policy = checkPolicy(c);
+        return policy?.violations ? [{criterion_id: c.key, key: policy.key, violations: policy.violations}] : [];
       })
     })}]}], generationConfig}, options, 90000);
   let assessment;

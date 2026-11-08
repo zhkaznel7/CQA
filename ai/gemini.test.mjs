@@ -21,8 +21,14 @@ function check(condition, met, index, group = 1) {
 }
 function discoveryChecks(index, known = true, clarified = true) {
   return [
-    {...check('Оператор учёл известные детали', known, index), condition_id: 'known_details_considered'},
-    {...check('Оператор уточнил недостающее до ответа', clarified, index, 2), condition_id: 'missing_details_clarified_before_answer'}
+    check('known_details_considered', known, index),
+    check('missing_details_clarified_before_answer', clarified, index, 2)
+  ];
+}
+function greetingChecks(index, greeted = true, introduced = true) {
+  return [
+    check('greeting_in_client_language', greeted, index),
+    check('operator_introduced', introduced, index, 2)
   ];
 }
 function levels(input, key, selected, reason) {
@@ -62,6 +68,42 @@ test('N/A assessment is required, and allowNa alone does not grant N/A', async (
   await assert.rejects(run(input, [result]), /na_assessment.condition_met/);
 });
 
+test('consultation: client only requested a human and left before naming an issue', async () => {
+  const input = conversation('p1-ru-025', ['04']);
+  const result = row(input, '04', 10);
+  result.na_assessment = {condition_met: true, reason: 'Клиент хотел объяснить вопрос после подключения и вышел до этого.'};
+  result.evidence.unshift({turnIndex: 4, quote: input.transcript[4].text});
+  result.checked_range = {start: 0, end: 10};
+  const [wire] = await run(input, [result], {inspect: body => {
+    const {na_policies} = JSON.parse(body.contents[0].parts[0].text);
+    assert.deepEqual(na_policies.map(p => [p.criterion_id, p.key]), [['04', 'chat_ended_before_issue_stated']]);
+    assert.match(na_policies[0].instructions, /только просил соединить с оператором.*condition_met=true, верни levels=\[\]/);
+  }});
+  assert.equal(wire.na, true);
+  assert.equal(wire.answer, null);
+  assert.deepEqual(wire.evidence, result.evidence);
+  assert.deepEqual(wire.checked_range, result.checked_range);
+});
+
+test('consultation: a problem described to the bot before handoff remains assessable after departure', async () => {
+  const input = conversation('p1-ru-025', ['04']);
+  input.transcript[4].text = 'Подключите оператора. Не могу войти в личный кабинет.';
+  const result = row(input, '04', 9);
+  result.na_assessment = {condition_met: false, reason: 'Клиент описал проблему со входом до подключения оператора.'};
+  result.evidence.unshift({turnIndex: 4, quote: 'Не могу войти в личный кабинет.'});
+  result.omission = true;
+  result.levels = [{value: 0, met: true, reason: 'Оператор только спросил, чем помочь. Инструкции по входу до окончания чата не было.'}];
+  const [wire] = await run(input, [result], {inspect: body => {
+    const {na_policies} = JSON.parse(body.contents[0].parts[0].text);
+    assert.match(na_policies[0].instructions, /сообщения боту до подключения оператора/);
+    assert.match(na_policies[0].instructions, /уже описал проблему, установи condition_met=false даже при последующем уходе/);
+  }});
+  assert.equal(wire.na, false);
+  assert.equal(wire.na_reason, null);
+  assert.equal(wire.answer, 0);
+  assert.deepEqual(wire.evidence, result.evidence);
+});
+
 test('N/A with evidence for sufficient initial details produces a consistent wire result', async () => {
   const input = conversation('p1-kz-005', ['02']);
   const result = row(input, '02', 0);
@@ -84,7 +126,9 @@ test('p1-ru-025: departure cannot override insufficient initial information for 
   const before = structuredClone(input);
   const [wire, other] = await run(input, [discovery, consultation], {inspect: body => {
     const data = JSON.parse(body.contents[0].parts[0].text);
-    assert.deepEqual(data.na_policies.map(p => [p.criterion_id, p.key]), [['02','initial_information_sufficient']]);
+    assert.deepEqual(data.na_policies.map(p => [p.criterion_id, p.key]), [
+      ['02','initial_information_sufficient'], ['04','chat_ended_before_issue_stated']
+    ]);
     assert.match(data.na_policies[0].instructions, /Уход клиента не доказывает/);
     const assessment = body.generationConfig.responseJsonSchema.properties.results.items.properties.na_assessment;
     assert.ok(assessment.required.includes('initial_information_sufficient'));
@@ -217,7 +261,8 @@ test('p1-ru-025: discovery answer is AND of two independently evidenced conditio
         {id: 'missing_details_clarified_before_answer', group: 2, condition: 'Оператор уточнил недостающее до ответа'}
       ]}]);
       const checkSchema = body.generationConfig.responseJsonSchema.properties.results.items.properties.checks.items;
-      assert.ok(checkSchema.required.includes('condition_id'));
+      assert.deepEqual(checkSchema.required, ['group','condition','met','reason','turnIndexes']);
+      assert.deepEqual(checkSchema.properties.condition, {type:'string'});
       assert.match(body.systemInstruction.parts[0].text, /Не объединяй обязательные условия/);
     }});
     assert.equal(wire.answer, expected);
@@ -238,8 +283,29 @@ test('the merged discovery check returned in 2.3.0 is rejected instead of counte
   result.checks = [check('Оператор учёл известные детали и уточнил недостающее до ответа', true, 9)];
   await assert.rejects(run(input, [result]), {code: 'INVALID_MODEL_OUTPUT', status: 502,
     message: /нужны отдельные checks.*known_details_considered.*missing_details_clarified_before_answer/});
-  result.checks[0].condition_id = 'known_details_considered';
+  result.checks[0].condition = 'known_details_considered';
   await assert.rejects(run(input, [result]), /нужны отдельные checks/);
+});
+
+test('p1-ru-025: discovery prompt pairs client context and operator clarification with their own quotes', async () => {
+  const input = conversation('p1-ru-025', ['02']);
+  const result = row(input, '02', 9);
+  result.na_assessment.initial_information_sufficient = false;
+  result.checks = [check('known_details_considered', true, 4),
+    check('missing_details_clarified_before_answer', true, 9, 2)];
+  result.evidence = [{turnIndex:9, quote:'С чем помочь?'}];
+  await assert.rejects(run(input, [result]), {code:'INVALID_MODEL_OUTPUT', message:/доказательств/});
+
+  result.evidence.push({turnIndex:4, quote:'Сразу подключите оператора'});
+  const [wire] = await run(input, [result], {inspect: body => {
+    const instruction = body.systemInstruction.parts[0].text;
+    assert.match(instruction, /checks\[\]\.turnIndexes.*evidence этого же критерия.*transcript\[i\]\.text/s);
+    assert.match(instruction, /need_discovery[^\n]*процитируй обе реплики с их собственными индексами/);
+  }});
+  assert.equal(wire.answer, true);
+  assert.deepEqual(wire.evidence, result.evidence);
+  result.evidence[1].quote = result.evidence[0].quote;
+  await assert.rejects(run(input, [result]), {code:'INVALID_MODEL_OUTPUT', message:/цитата не совпала/});
 });
 
 test('duplicate, unknown and OR-grouped discovery conditions cannot replace a mandatory condition', async () => {
@@ -248,7 +314,7 @@ test('duplicate, unknown and OR-grouped discovery conditions cannot replace a ma
   result.na_assessment.initial_information_sufficient = false;
   for (const badChecks of [
     [discoveryChecks(9)[0], discoveryChecks(9)[0]],
-    [discoveryChecks(9)[0], {...discoveryChecks(9)[1], condition_id: 'other'}],
+    [discoveryChecks(9)[0], {...discoveryChecks(9)[1], condition: 'other'}],
     [...discoveryChecks(9), discoveryChecks(9)[0]]
   ]) {
     result.checks = badChecks;
@@ -270,6 +336,31 @@ test('each mandatory discovery condition needs its own reason and cited turn', a
       await assert.rejects(run(input, [result]), /обоснования и доказательств/);
     }
   }
+});
+
+test('discovery IDs and exact labels are interchangeable only with evidence for each cited turn', () => {
+  const input = conversation('p1-ru-025', ['02']);
+  const result = row(input, '02', 9);
+  result.na_assessment.initial_information_sufficient = false;
+  result.checks = [check('known_details_considered', true, 4),
+    check('missing_details_clarified_before_answer', true, 9, 2)];
+  result.evidence.push({turnIndex:4, quote:input.transcript[4].text});
+  const expected = validateResults([result], input);
+  const first = 'Оператор учёл известные детали';
+  const second = 'Оператор уточнил недостающее до ответа';
+  result.checks[1].condition = second;
+  assert.deepEqual(validateResults([result], input), expected);
+  result.checks[0].condition = first;
+  assert.deepEqual(validateResults([result], input), expected);
+  for (const invalid of [second + '.', 'known_details_considered']) {
+    result.checks[1].condition = invalid;
+    assert.throws(() => validateResults([result], input), /отдельные checks/);
+  }
+  result.checks[1].condition = second;
+  result.evidence[1].quote = 'Цитата, которой нет в реплике.';
+  assert.throws(() => validateResults([result], input), /цитата не совпала/);
+  result.evidence.pop();
+  assert.throws(() => validateResults([result], input), /обоснования и доказательств/);
 });
 
 test('mandatory discovery checks follow the description even when the key is renamed', async () => {
@@ -309,6 +400,7 @@ test('ordinary chat greeting cannot acquire a prohibited N/A', async () => {
 
 test('compound conditions compute AND and OR; unsupported evidence is rejected', () => {
   const input = conversation('p1-kz-008', ['01']);
+  input.checklist.criteria[0] = {...input.checklist.criteria[0], description: 'Проверки A и B или C.'};
   const result = row(input, '01', 9);
   result.answer = true;
   result.checks = [check('Приветствие', true, 9), check('Представление', false, 9, 2)];
@@ -321,13 +413,74 @@ test('compound conditions compute AND and OR; unsupported evidence is rejected',
   assert.throws(() => validateResults([result], input), /доказательств/);
 });
 
+test('boolean=false requires checked_range even with a valid quote and omission=false', async () => {
+  for (const key of ['01', 'custom-greeting']) {
+    const input = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
+    input.checklist.criteria = [{...input.checklist.criteria.find(c => c.key === '01'), key}];
+    const result = row(input, key, 1);
+    result.checks = greetingChecks(1, true, false);
+    result.checked_range = null;
+    result.omission = false;
+    await assert.rejects(run(input, [result]), {status: 502, code: 'INVALID_MODEL_OUTPUT', message: /checked_range/});
+    delete result.checked_range;
+    await assert.rejects(run(input, [result]), {status: 502, code: 'INVALID_MODEL_OUTPUT', message: /checked_range/});
+  }
+});
+
+test('boolean=false accepts inclusive ranges and still rejects invalid bounds or excluded evidence', async () => {
+  const input = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
+  input.checklist.criteria = input.checklist.criteria.filter(c => c.key === '01');
+  const result = row(input, '01', 1);
+  result.checks = greetingChecks(1, true, false);
+  for (const span of [{start: 1, end: 1}, {start: 0, end: 1}]) {
+    result.checked_range = span;
+    const [wire] = await run(input, [result]);
+    assert.equal(wire.answer, false);
+    assert.equal(wire.na, false);
+    assert.deepEqual(wire.checked_range, span);
+    assert.deepEqual(Object.keys(wire).sort(),
+      ['criterion_id','answer','na','na_reason','explanation','evidence','checked_range'].sort());
+  }
+  for (const span of [{start: 0, end: 0}, {start: 1, end: 0}, {start: -1, end: 1}, {start: 0, end: 2}]) {
+    result.checked_range = span;
+    await assert.rejects(run(input, [result]), {status: 502, code: 'INVALID_MODEL_OUTPUT'});
+  }
+});
+
+test('positive boolean, N/A and numeric zero do not inherit the boolean=false range requirement', async () => {
+  const greetingInput = conversation('p1-ru-025', ['01']);
+  const greeting = row(greetingInput, '01', 9);
+  greeting.checks = greetingChecks(9);
+  greeting.checked_range = null;
+  assert.equal((await run(greetingInput, [greeting]))[0].answer, true);
+
+  const naInput = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
+  naInput.checklist.criteria = naInput.checklist.criteria.filter(c => c.key === '03');
+  const notApplicable = row(naInput, '03', 0);
+  notApplicable.na_assessment = {condition_met: true, reason: 'Публичный вопрос о тарифах не требует идентификации.'};
+  notApplicable.checked_range = null;
+  const [naWire] = await run(naInput, [notApplicable]);
+  assert.equal(naWire.na, true);
+  assert.equal(naWire.answer, null);
+
+  const scaleInput = JSON.parse(readFileSync(new URL('./mock-request.json', import.meta.url)));
+  scaleInput.checklist.criteria = scaleInput.checklist.criteria.filter(c => c.key === '04');
+  const zero = row(scaleInput, '04', 1);
+  zero.levels = [{value: 0, met: true, reason: 'Дано только обещание уточнить, ответа по существу нет.'}];
+  zero.checked_range = null;
+  const [zeroWire] = await run(scaleInput, [zero]);
+  assert.equal(zeroWire.answer, 0);
+  assert.equal(zeroWire.checked_range, null);
+});
+
 test('p1-en-014: reaction to concern is separately required for empathy', async () => {
   const input = conversation('p1-en-014', ['05']);
   const result = row(input, '05', 12);
-  result.checks = [check('Вежливость', true, 12), check('Реакция на опасение о проверке личности', false, 12, 2)];
+  result.checks = [check('polite', true, 12),
+    check('reaction_to_inconvenience', false, 12, 2)];
   const [wire] = await run(input, [result]);
   assert.equal(wire.answer, false);
-  assert.match(wire.explanation, /Реакция на опасение о проверке личности — не подтверждено/);
+  assert.match(wire.explanation, /конкретную проблему — не подтверждено/);
 });
 
 test('p1-en-015: selected level explains the communication failure', async () => {
@@ -348,9 +501,9 @@ test('flag computes OR across each checked violation, with no extra third-party 
   const input = conversation('p1-en-014', ['08']);
   const result = row(input, '08', 10);
   result.violations = [
-    {violation:'Оскорбление',detected:false,reason:'Оскорбления нет.',turnIndexes:[10]},
-    {violation:'Платная услуга в обход компании',detected:false,reason:'Такой услуги нет.',turnIndexes:[10]},
-    {violation:'Раскрытие конфиденциальной информации',detected:true,reason:'Раскрыт статус счёта до проверки.',turnIndexes:[10]}
+    {violation:'insult',detected:false,reason:'Оскорбления нет.',turnIndexes:[10]},
+    {violation:'paid_service_outside_company',detected:false,reason:'Такой услуги нет.',turnIndexes:[10]},
+    {violation:'confidentiality_disclosure',detected:true,reason:'Раскрыт статус счёта до проверки.',turnIndexes:[10]}
   ];
   const [wire] = await run(input, [result], {inspect: body => {
     assert.match(body.systemInstruction.parts[0].text, /Не добавляй «третьим лицам»/);
@@ -474,8 +627,7 @@ test('400 diagnostics classify schema and key errors without leaking provider te
 test('ordinary greeting and confirmed N/A stay distinct in one unchanged Backend response', async () => {
   const input = conversation('p1-ru-025', ['01','04']);
   const greeting = row(input, '01', 9);
-  greeting.checks = [check('Приветствие на языке клиента', true, 9),
-    check('Представление в первом ответе', true, 9, 2)];
+  greeting.checks = greetingChecks(9);
   const consultation = row(input, '04', 10);
   consultation.na_assessment = {condition_met:true,reason:'Клиент покинул чат, не сформулировав вопрос.'};
   const output = await run(input, [greeting, consultation], {inspect: body => {
@@ -569,9 +721,9 @@ test('absence of violations never becomes a positive flag via generic met=true',
   const input=conversation('p1-ru-025',['08']);
   const result=row(input,'08',9);
   result.violations=[
-    {violation:'Оскорбление',detected:false,reason:'Оскорблений нет.',turnIndexes:[9]},
-    {violation:'Платная услуга в обход компании',detected:false,reason:'Предложения нет.',turnIndexes:[9]},
-    {violation:'Раскрытие конфиденциальной информации',detected:false,reason:'Раскрытия нет.',turnIndexes:[9]}
+    {violation:'insult',detected:false,reason:'Оскорблений нет.',turnIndexes:[9]},
+    {violation:'paid_service_outside_company',detected:false,reason:'Предложения нет.',turnIndexes:[9]},
+    {violation:'confidentiality_disclosure',detected:false,reason:'Раскрытия нет.',turnIndexes:[9]}
   ];
   const [wire]=await run(input,[result]);
   assert.equal(wire.answer,false);
@@ -592,4 +744,79 @@ test('one justified allowed scale level is sufficient without enumerating reject
   await assert.rejects(run(input,[result]),/ступень/);
   result.levels=[{value:10,met:true,reason:'Первый'},{value:10,met:true,reason:'Повтор'}];
   await assert.rejects(run(input,[result]),/повторная ступень/);
+});
+
+test('official contact cannot pass with only greeting or evidence from a bot', async () => {
+  const input = conversation('p1-ru-025', ['01']);
+  const result = row(input, '01', 9);
+  result.checks = greetingChecks(9).slice(0, 1);
+  await assert.rejects(run(input, [result]), /отдельные checks/);
+  result.checks = greetingChecks(9);
+  assert.equal((await run(input, [result]))[0].answer, true);
+  result.evidence = [{turnIndex: 1, quote: input.transcript[1].text}];
+  result.checks = greetingChecks(1);
+  await assert.rejects(run(input, [result]), /первым ответом оператора/);
+});
+
+test('empathy includes the conditional reaction check even when there is no trigger', async () => {
+  const input = conversation('p1-ru-025', ['05']);
+  const result = row(input, '05', 9);
+  result.checks = [check('polite', true, 9)];
+  await assert.rejects(run(input, [result]), /отдельные checks/);
+  result.checks.push({...check('reaction_to_inconvenience', true, 9, 2), reason: 'Клиент не сообщил о неудобстве; условие не нарушено.'});
+  assert.equal((await run(input, [result]))[0].answer, true);
+});
+
+test('closure requires (summary OR further help) AND goodbye for every combination', async () => {
+  const input = conversation('p1-ru-025', ['07']);
+  for (const summary of [false, true]) for (const help of [false, true]) for (const goodbye of [false, true]) {
+    input.transcript = [
+      {turnIndex:0, timestamp:'00:00', speaker:'client', text:'Спасибо, вопрос решён.'},
+      {turnIndex:1, timestamp:'00:01', speaker:'operator', text:[summary && 'Подвели итог.', help && 'Чем ещё помочь?', goodbye && 'До свидания!'].filter(Boolean).join(' ') || 'Хорошо.'},
+      {turnIndex:2, timestamp:'00:02', speaker:'system', text:'Оператор закрыл чат.'}
+    ];
+    const result = row(input, '07', 1);
+    result.checks = [
+      check('summary', summary, 1),
+      check('further_help', help, 1),
+      check('goodbye', goodbye, 1, 2)
+    ];
+    assert.equal((await run(input, [result]))[0].answer, (summary || help) && goodbye);
+  }
+});
+
+test('critical requires every configured violation and cannot skip the paid-service offer', async () => {
+  const input = conversation('p1-kz-013', ['08']);
+  const result = row(input, '08', 11);
+  result.violations = [{violation:'insult', detected:false, reason:'Оскорбления нет.', turnIndexes:[11]}];
+  await assert.rejects(run(input, [result]), /каждого вида нарушения/);
+  result.violations.push(
+    {violation:'paid_service_outside_company', detected:true, reason:'Предложена частная платная консультация.', turnIndexes:[11]},
+    {violation:'confidentiality_disclosure', detected:false, reason:'Раскрытия данных нет.', turnIndexes:[11]}
+  );
+  result.violations.reverse();
+  const [wire] = await run(input, [result]);
+  assert.equal(wire.answer, true);
+  assert.match(wire.explanation, /Предложение платной услуги в обход компании — выявлено/);
+  assert.ok(!wire.explanation.includes('paid_service_outside_company'));
+  result.violations[0].violation = 'Раскрытие конфиденциальной информации';
+  assert.deepEqual(await run(input, [result]), [wire]);
+  result.violations[1].violation = 'Предложение платной услуги в обход компании';
+  result.violations[2].violation = 'Оскорбление клиента';
+  assert.deepEqual(await run(input, [result]), [wire]);
+  for (const invalid of ['Раскрытие конфиденциальной информации.', 'paid_service_outside_company']) {
+    result.violations[0].violation = invalid;
+    await assert.rejects(run(input, [result]), /каждого вида нарушения/);
+  }
+});
+
+test('an edited flag is assessed by its current definition without inherited violations', async () => {
+  const input = conversation('p1-ru-025', ['08']);
+  input.checklist.criteria[0] = {...input.checklist.criteria[0], key:'new-flag', description:'Выявлено повторное обещание.'};
+  const result = row(input, 'new-flag', 9);
+  result.violations = [{violation:'Повторное обещание', detected:false, reason:'Повтора нет.', turnIndexes:[9]}];
+  const [wire] = await run(input, [result], {inspect: body => {
+    assert.deepEqual(JSON.parse(body.contents[0].parts[0].text).violation_policies, []);
+  }});
+  assert.equal(wire.answer, false);
 });

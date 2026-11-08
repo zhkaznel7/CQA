@@ -28,6 +28,7 @@ class ComparisonTests(unittest.TestCase):
 
     def test_mismatch_is_assigned_to_exact_criterion(self):
         self.predictions["p1-ru-001"]["results"][0]["answer"] = False
+        self.predictions["p1-ru-001"]["results"][0]["checked_range"] = {"start": 0, "end": len(self.source["p1-ru-001"]["transcript"]) - 1}
         report = comparison.compare(self.labels, self.predictions, self.source)
         errors = [r for r in report["details"] if r["status"] == "mismatch"]
         self.assertEqual([(r["conversation_id"], r["criterion_id"]) for r in errors], [("p1-ru-001", "01")])
@@ -51,8 +52,9 @@ class ComparisonTests(unittest.TestCase):
     def test_missing_omission_range_is_reported_even_with_matching_answer(self):
         self.predictions["p1-en-015"]["results"][0]["checked_range"] = None
         report = comparison.compare(self.labels, self.predictions, self.source)
-        self.assertTrue(any(i["conversation_id"] == "p1-en-015" and i["criterion_id"] == "01"
-                            for i in report["technical_issues"]))
+        detail = next(r for r in report["details"] if r["conversation_id"] == "p1-en-015" and r["criterion_id"] == "01")
+        self.assertEqual(detail["status"], "unavailable")
+        self.assertIn("boolean=false требует checked_range", detail["problem"])
 
     def test_reader_handles_error_files_and_rejects_duplicate_conversations(self):
         import json
@@ -98,6 +100,7 @@ class BaselineTests(unittest.TestCase):
     def test_before_after_keeps_actual_answers_and_explanations(self):
         baseline = comparison.compare(self.labels, self.predictions, self.source)
         self.predictions["p1-ru-001"]["results"][0]["answer"] = False
+        self.predictions["p1-ru-001"]["results"][0]["checked_range"] = {"start": 0, "end": len(self.source["p1-ru-001"]["transcript"]) - 1}
         current = comparison.compare(self.labels, self.predictions, self.source)
         rows = comparison.baseline_comparison(current, baseline)
         changed = [r for r in rows if r["before"] != r["after"]]
@@ -159,6 +162,16 @@ class EvidenceRangeTests(unittest.TestCase):
 
     def test_missing_range_allows_a_valid_quote_as_in_backend(self):
         self.result["checked_range"] = None
+        self.assertEqual(self.report()["details"][0]["status"], "match")
+
+    def test_false_with_valid_quote_but_no_range_is_unavailable_even_when_label_matches(self):
+        self.result["answer"] = False
+        self.result["checked_range"] = None
+        report = self.report()
+        self.assertEqual(report["details"][0]["status"], "unavailable")
+        self.assertIn("checked_range", report["details"][0]["problem"])
+        self.assertEqual(report["criteria"]["c3"].get("approved_matches", 0), 0)
+        self.result["checked_range"] = {"start": 1, "end": 1}
         self.assertEqual(self.report()["details"][0]["status"], "match")
 
 if __name__ == "__main__":
