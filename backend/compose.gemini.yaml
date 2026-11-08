@@ -1,0 +1,12 @@
+services:
+  ai:
+    image: cqa-ai-gemini:local
+    build:
+      dockerfile: ../backend/docker/ai-gemini.Dockerfile
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY for the AI service}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+  backend:
+    environment:
+      AI_SERVICE_KIND: ai
+      AI_ALLOW_MOCK_IN_PRODUCTION: "false"
